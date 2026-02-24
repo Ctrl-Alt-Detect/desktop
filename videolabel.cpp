@@ -17,14 +17,25 @@ void VideoLabel::setFrame(const cv::Mat &frame)
 {
     if (frame.empty()) return;
 
-    cv::Mat rgb;
     if (frame.channels() == 1)
-        cv::cvtColor(frame, rgb, cv::COLOR_GRAY2RGB);
+    {
+        cv::cvtColor(frame, m_rgbMat, cv::COLOR_GRAY2RGB);
+        m_frameImage = QImage(m_rgbMat.data,
+                              m_rgbMat.cols,
+                              m_rgbMat.rows,
+                              static_cast<int>(m_rgbMat.step),
+                              QImage::Format_RGB888);
+    }
     else
-        cv::cvtColor(frame, rgb, cv::COLOR_BGR2RGB);
-
-    QImage image(rgb.data, rgb.cols, rgb.rows, static_cast<int>(rgb.step), QImage::Format_RGB888);
-    m_currentPixmap = QPixmap::fromImage(image);
+    {
+        m_rgbMat = frame;
+        m_frameImage = QImage(m_rgbMat.data,
+                              m_rgbMat.cols,
+                              m_rgbMat.rows,
+                              static_cast<int>(m_rgbMat.step),
+                              QImage::Format_BGR888);
+    }
+    m_frameDirty = true;
     
     update();
 }
@@ -84,18 +95,26 @@ void VideoLabel::paintEvent(QPaintEvent *event)
 {
     QLabel::paintEvent(event);
     
-    if (m_currentPixmap.isNull()) return;
+    if (m_frameImage.isNull()) return;
 
     QPainter painter(this);
     
     // Calculate scaled pixmap to fit label while maintaining aspect ratio
-    QPixmap scaled = m_currentPixmap.scaled(size(), Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    QSize targetSize = m_frameImage.size();
+    targetSize.scale(size(), Qt::KeepAspectRatio);
+
+    if (m_frameDirty || m_scaledSize != targetSize)
+    {
+        m_scaledImage = m_frameImage.scaled(targetSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        m_scaledSize = targetSize;
+        m_frameDirty = false;
+    }
     
     // Center the pixmap
-    int x = (width() - scaled.width()) / 2;
-    int y = (height() - scaled.height()) / 2;
+    int x = (width() - m_scaledImage.width()) / 2;
+    int y = (height() - m_scaledImage.height()) / 2;
     
-    painter.drawPixmap(x, y, scaled);
+    painter.drawImage(x, y, m_scaledImage);
     
     // Draw the selection rectangle
     if (m_drawing || m_hasSelection)

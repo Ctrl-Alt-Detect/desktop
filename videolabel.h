@@ -4,6 +4,8 @@
 #include <QLabel>
 #include <QMouseEvent>
 #include <QRect>
+#include <QImage>
+#include <QSize>
 #include <opencv2/opencv.hpp>
 
 class VideoLabel : public QLabel
@@ -33,7 +35,11 @@ private:
     bool m_drawing;
     bool m_hasSelection;
     QRect m_selectedRect;
-    QPixmap m_currentPixmap;
+    cv::Mat m_rgbMat;
+    QImage m_frameImage;
+    QImage m_scaledImage;
+    QSize m_scaledSize;
+    bool m_frameDirty = false;
 };
 
 #endif // VIDEOLABEL_H
