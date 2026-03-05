@@ -20,6 +20,14 @@ set(PROJECT_SOURCES
         main.cpp
         mainwindow.cpp
         mainwindow.h
+        customwindow.cpp
+        customwindow.h
+        outlinebutton.cpp
+        outlinebutton.h
+        outlinebuttontoggle.cpp
+        outlinebuttontoggle.h
+        windowcontrols.cpp
+        windowcontrols.h
         videolabel.cpp
         videolabel.h
 )

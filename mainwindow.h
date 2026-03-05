@@ -14,6 +14,7 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/tracking.hpp>
 #include "videolabel.h"
+#include "outlinebutton.h"
 
 enum TrackerType {
     TRACKER_MIL,
@@ -52,8 +53,8 @@ private:
     QComboBox *m_cameraCombo;
     QListWidget *m_trackerList;
     VideoLabel *m_videoLabel;
-    QPushButton *m_stopTrackingBtn;
-    QPushButton *m_clearSelectionBtn;
+    OutlineButton *m_stopTrackingBtn;
+    OutlineButton *m_clearSelectionBtn;
     QLabel *m_statusLabel;
     QLabel *m_fpsLabel;
     QLabel *m_delayLabel;
