@@ -15,6 +15,7 @@
 #include <opencv2/tracking.hpp>
 #include "videolabel.h"
 #include "outlinebutton.h"
+#include "aicore.h"
 
 enum TrackerType {
     TRACKER_MIL,
@@ -37,6 +38,11 @@ private slots:
     void onStopTracking();
     void onClearSelection();
     void onTrackerSelectionChanged();
+    void onToggleAI();
+    void onSaveAIModel();
+    void onLoadAIModel();
+    void onAIFrameIntervalChanged(int value);
+    void onSetupYOLO();
 
 private:
     void setupUI();
@@ -47,6 +53,8 @@ private:
     QList<TrackerType> getSelectedTrackers();
     void updateDrawingEnabled();
     void updateFpsDisplay();
+    void runAIDetection(cv::Mat &displayFrame);
+    void reinitTrackers(const cv::Rect &newRect);
 
     // UI Components
     QGroupBox *m_cameraGroup;
@@ -55,9 +63,14 @@ private:
     VideoLabel *m_videoLabel;
     OutlineButton *m_stopTrackingBtn;
     OutlineButton *m_clearSelectionBtn;
+    OutlineButton *m_aiToggleBtn;
+    OutlineButton *m_aiSaveBtn;
+    OutlineButton *m_aiLoadBtn;
     QLabel *m_statusLabel;
     QLabel *m_fpsLabel;
     QLabel *m_delayLabel;
+    QLabel *m_aiStatusLabel;
+    QComboBox *m_aiFrameIntervalCombo;
 
     // OpenCV Components
     cv::VideoCapture m_capture;
@@ -69,7 +82,13 @@ private:
     QList<cv::Rect> m_trackingRects;
     cv::Rect m_averagedRect;
     bool m_isTracking;
-    
+
+    // AI Components
+    AICore m_aiCore;
+    bool m_aiEnabled = false;
+    int m_frameCounter = 0;
+    int m_aiFrameInterval = 15;
+
     // Performance metrics
     QElapsedTimer m_frameTimer;
     QList<qint64> m_frameTimes;
