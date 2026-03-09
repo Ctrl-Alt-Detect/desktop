@@ -26,6 +26,84 @@ void MainWindow::setupUI()
     // Create central widget
     QWidget *centralWidget = new QWidget(this);
     setCentralWidget(centralWidget);
+    centralWidget->setStyleSheet(
+        "QLabel { color: #d7e3ef; }"
+        "QGroupBox {"
+        "  color: #d7e3ef;"
+        "  border: 1px solid #2a3d52;"
+        "  border-radius: 10px;"
+        "  margin-top: 12px;"
+        "}"
+        "QGroupBox::title {"
+        "  subcontrol-origin: margin;"
+        "  left: 10px;"
+        "  padding: 0 6px;"
+        "  color: #d7e3ef;"
+        "}"
+        "QComboBox {"
+        "  background: #1f3042;"
+        "  color: #e6eef7;"
+        "  border: 1px solid #35506a;"
+        "  border-radius: 10px;"
+        "  padding: 6px 12px;"
+        "  min-height: 24px;"
+        "}"
+        "QComboBox:hover {"
+        "  border: 1px solid #4a6d8f;"
+        "  background: #24374b;"
+        "}"
+        "QComboBox:focus {"
+        "  border: 1px solid #58a6ff;"
+        "}"
+        "QComboBox::drop-down {"
+        "  subcontrol-origin: padding;"
+        "  subcontrol-position: top right;"
+        "  width: 28px;"
+        "  border-left: 1px solid #35506a;"
+        "}"
+        "QComboBox::down-arrow {"
+        "  image: none;"
+        "  width: 0;"
+        "  height: 0;"
+        "  border-left: 5px solid transparent;"
+        "  border-right: 5px solid transparent;"
+        "  border-top: 6px solid #9ec6ee;"
+        "  margin-right: 8px;"
+        "}"
+        "QComboBox QAbstractItemView {"
+        "  background: #182636;"
+        "  color: #d7e3ef;"
+        "  border: 1px solid #35506a;"
+        "  border-radius: 8px;"
+        "  selection-background-color: #2d5d87;"
+        "  selection-color: #ffffff;"
+        "  padding: 4px;"
+        "}"
+        "QListWidget {"
+        "  background: #182636;"
+        "  color: #d7e3ef;"
+        "  border: 1px solid #35506a;"
+        "  border-radius: 10px;"
+        "  padding: 6px;"
+        "  outline: none;"
+        "}"
+        "QListWidget::item {"
+        "  background: #1f3042;"
+        "  border: 1px solid transparent;"
+        "  border-radius: 8px;"
+        "  padding: 6px 10px;"
+        "  margin: 2px 0px;"
+        "}"
+        "QListWidget::item:hover {"
+        "  background: #2a4057;"
+        "  border: 1px solid #4a6d8f;"
+        "}"
+        "QListWidget::item:selected {"
+        "  background: #2d5d87;"
+        "  border: 1px solid #58a6ff;"
+        "  color: #ffffff;"
+        "}"
+    );
     
     // Main layout
     QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
@@ -38,6 +116,7 @@ void MainWindow::setupUI()
     QHBoxLayout *comboLayout = new QHBoxLayout();
     QLabel *cameraLabel = new QLabel("Select Camera:", this);
     m_cameraCombo = new QComboBox(this);
+    m_cameraCombo->setMinimumHeight(36);
     comboLayout->addWidget(cameraLabel);
     comboLayout->addWidget(m_cameraCombo, 1);
     cameraLayout->addLayout(comboLayout);
@@ -48,6 +127,7 @@ void MainWindow::setupUI()
     m_trackerList = new QListWidget(this);
     m_trackerList->setSelectionMode(QAbstractItemView::MultiSelection);
     m_trackerList->setMaximumHeight(120);
+    m_trackerList->setSpacing(2);
     trackerLayout->addWidget(trackerLabel);
     trackerLayout->addWidget(m_trackerList, 1);
     cameraLayout->addLayout(trackerLayout);
@@ -62,8 +142,8 @@ void MainWindow::setupUI()
     
     // Control buttons
     QHBoxLayout *buttonLayout = new QHBoxLayout();
-    m_stopTrackingBtn = new QPushButton("Stop Tracking", this);
-    m_clearSelectionBtn = new QPushButton("Clear Selection", this);
+    m_stopTrackingBtn = new OutlineButton("Stop Tracking", this);
+    m_clearSelectionBtn = new OutlineButton("Clear Selection", this);
     
     m_stopTrackingBtn->setEnabled(false);
     
