@@ -83,7 +83,7 @@ void CustomWindow::mousePressEvent(QMouseEvent *event) {
     QWidget::mousePressEvent(event);
 }
 
-bool CustomWindow::nativeEvent(const QByteArray &eventType, void *message, long *result) {
+bool CustomWindow::nativeEvent(const QByteArray &eventType, void *message, qintptr *result) {
 #ifdef Q_OS_WIN
     if (eventType == "windows_generic_MSG" || eventType == "windows_dispatcher_MSG") {
         MSG *msg = static_cast<MSG *>(message);

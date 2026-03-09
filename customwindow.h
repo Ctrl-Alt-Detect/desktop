@@ -15,7 +15,7 @@ public:
 
 protected:
     void mousePressEvent(QMouseEvent *event) override;
-    bool nativeEvent(const QByteArray &eventType, void *message, long *result) override;
+    bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
     void changeEvent(QEvent *event) override;
 
 private:
