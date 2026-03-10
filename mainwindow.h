@@ -59,7 +59,6 @@ private:
     void reinitTrackers(const cv::Rect &newRect);
 
     // UI Components
-    QGroupBox *m_cameraGroup;
     QComboBox *m_cameraCombo;
     QListWidget *m_trackerList;
     VideoLabel *m_videoLabel;

@@ -3,6 +3,7 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QInputDialog>
+#include <QScrollArea>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -31,25 +32,27 @@ void MainWindow::setupUI()
     QWidget *centralWidget = new QWidget(this);
     setCentralWidget(centralWidget);
     centralWidget->setStyleSheet(
-        "QLabel { color: #d7e3ef; }"
+        "QLabel { color: #d7e3ef; font-size: 12px; }"
         "QGroupBox {"
         "  color: #d7e3ef;"
         "  border: 1px solid #2a3d52;"
-        "  border-radius: 10px;"
-        "  margin-top: 12px;"
+        "  border-radius: 6px;"
+        "  margin-top: 8px;"
+        "  padding-top: 8px;"
+        "  background: #1a2634;"
         "}"
         "QGroupBox::title {"
         "  subcontrol-origin: margin;"
-        "  left: 10px;"
-        "  padding: 0 6px;"
+        "  left: 8px;"
+        "  padding: 0 4px;"
         "  color: #d7e3ef;"
         "}"
         "QComboBox {"
         "  background: #1f3042;"
         "  color: #e6eef7;"
         "  border: 1px solid #35506a;"
-        "  border-radius: 10px;"
-        "  padding: 6px 12px;"
+        "  border-radius: 6px;"
+        "  padding: 4px 8px;"
         "  min-height: 24px;"
         "}"
         "QComboBox:hover {"
@@ -62,41 +65,41 @@ void MainWindow::setupUI()
         "QComboBox::drop-down {"
         "  subcontrol-origin: padding;"
         "  subcontrol-position: top right;"
-        "  width: 28px;"
+        "  width: 20px;"
         "  border-left: 1px solid #35506a;"
         "}"
         "QComboBox::down-arrow {"
         "  image: none;"
         "  width: 0;"
         "  height: 0;"
-        "  border-left: 5px solid transparent;"
-        "  border-right: 5px solid transparent;"
-        "  border-top: 6px solid #9ec6ee;"
-        "  margin-right: 8px;"
+        "  border-left: 4px solid transparent;"
+        "  border-right: 4px solid transparent;"
+        "  border-top: 5px solid #9ec6ee;"
+        "  margin-right: 6px;"
         "}"
         "QComboBox QAbstractItemView {"
         "  background: #182636;"
         "  color: #d7e3ef;"
         "  border: 1px solid #35506a;"
-        "  border-radius: 8px;"
+        "  border-radius: 6px;"
         "  selection-background-color: #2d5d87;"
         "  selection-color: #ffffff;"
-        "  padding: 4px;"
+        "  padding: 2px;"
         "}"
         "QListWidget {"
         "  background: #182636;"
         "  color: #d7e3ef;"
         "  border: 1px solid #35506a;"
-        "  border-radius: 10px;"
-        "  padding: 6px;"
+        "  border-radius: 6px;"
+        "  padding: 3px;"
         "  outline: none;"
         "}"
         "QListWidget::item {"
         "  background: #1f3042;"
         "  border: 1px solid transparent;"
-        "  border-radius: 8px;"
-        "  padding: 6px 10px;"
-        "  margin: 2px 0px;"
+        "  border-radius: 4px;"
+        "  padding: 4px 6px;"
+        "  margin: 1px 0px;"
         "}"
         "QListWidget::item:hover {"
         "  background: #2a4057;"
@@ -107,97 +110,172 @@ void MainWindow::setupUI()
         "  border: 1px solid #58a6ff;"
         "  color: #ffffff;"
         "}"
+        "QPushButton {"
+        "  min-height: 26px;"
+        "  padding: 4px 10px;"
+        "}"
+        "QScrollArea {"
+        "  border: none;"
+        "  background: #1a2634;"
+        "}"
+        "QScrollArea QWidget {"
+        "  background: #1a2634;"
+        "}"
+        "QScrollBar:vertical {"
+        "  background: #1a2634;"
+        "  width: 10px;"
+        "  border-radius: 5px;"
+        "}"
+        "QScrollBar::handle:vertical {"
+        "  background: #35506a;"
+        "  border-radius: 5px;"
+        "  min-height: 20px;"
+        "}"
+        "QScrollBar::handle:vertical:hover {"
+        "  background: #4a6d8f;"
+        "}"
+        "QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {"
+        "  height: 0px;"
+        "}"
     );
+
+    // Main horizontal layout - OBS style
+    QHBoxLayout *mainLayout = new QHBoxLayout(centralWidget);
+    mainLayout->setSpacing(8);
+    mainLayout->setContentsMargins(8, 8, 8, 8);
+
+    // LEFT PANEL - Video display
+    QVBoxLayout *videoPanel = new QVBoxLayout();
+    videoPanel->setSpacing(0);
+    videoPanel->setContentsMargins(0, 0, 0, 0);
+
+    // Video display
+    m_videoLabel = new VideoLabel(this);
+    m_videoLabel->setStyleSheet("QLabel { background-color: #000000; border: 2px solid #35506a; }");
+    m_videoLabel->setMinimumSize(640, 480);
+    m_videoLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    videoPanel->addWidget(m_videoLabel, 1);
+
+    // Status bar below video
+    QHBoxLayout *statusBarLayout = new QHBoxLayout();
+    statusBarLayout->setContentsMargins(4, 4, 4, 4);
+    statusBarLayout->setSpacing(16);
     
-    // Main layout
-    QVBoxLayout *mainLayout = new QVBoxLayout(centralWidget);
+    m_statusLabel = new QLabel("Status: No camera selected", this);
+    m_statusLabel->setStyleSheet("color: #88aacc; font-weight: bold;");
+    statusBarLayout->addWidget(m_statusLabel, 1);
     
+    m_fpsLabel = new QLabel("FPS: 0.0", this);
+    m_fpsLabel->setStyleSheet("color: #00ff88;");
+    statusBarLayout->addWidget(m_fpsLabel);
+    
+    m_delayLabel = new QLabel("Delay: 0 ms", this);
+    m_delayLabel->setStyleSheet("color: #ffaa00;");
+    statusBarLayout->addWidget(m_delayLabel);
+    
+    videoPanel->addLayout(statusBarLayout);
+
+    mainLayout->addLayout(videoPanel, 1);
+
+    // RIGHT PANEL - Settings (scrollable)
+    QScrollArea *scrollArea = new QScrollArea(this);
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setMinimumWidth(280);
+    scrollArea->setMaximumWidth(320);
+    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    
+    QWidget *settingsPanel = new QWidget();
+    QVBoxLayout *settingsLayout = new QVBoxLayout(settingsPanel);
+    settingsLayout->setSpacing(8);
+    settingsLayout->setContentsMargins(4, 4, 4, 4);
+
     // Camera selection group
-    m_cameraGroup = new QGroupBox("Webcam", this);
-    QVBoxLayout *cameraLayout = new QVBoxLayout(m_cameraGroup);
+    QGroupBox *cameraGroup = new QGroupBox("📹 Camera", this);
+    QVBoxLayout *cameraLayout = new QVBoxLayout(cameraGroup);
+    cameraLayout->setSpacing(6);
     
-    // Camera combo box
     QHBoxLayout *comboLayout = new QHBoxLayout();
-    QLabel *cameraLabel = new QLabel("Select Camera:", this);
+    QLabel *cameraLabel = new QLabel("Select:", this);
     m_cameraCombo = new QComboBox(this);
-    m_cameraCombo->setMinimumHeight(36);
+    m_cameraCombo->setMinimumHeight(26);
     comboLayout->addWidget(cameraLabel);
     comboLayout->addWidget(m_cameraCombo, 1);
     cameraLayout->addLayout(comboLayout);
+    settingsLayout->addWidget(cameraGroup);
+
+    // Tracker selection group
+    QGroupBox *trackerGroup = new QGroupBox("🎯 Trackers", this);
+    QVBoxLayout *trackerLayout = new QVBoxLayout(trackerGroup);
+    trackerLayout->setSpacing(6);
     
-    // Tracker selection list
-    QHBoxLayout *trackerLayout = new QHBoxLayout();
-    QLabel *trackerLabel = new QLabel("Select Tracker(s):", this);
     m_trackerList = new QListWidget(this);
     m_trackerList->setSelectionMode(QAbstractItemView::MultiSelection);
-    m_trackerList->setMaximumHeight(120);
+    m_trackerList->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    m_trackerList->setMinimumHeight(80);
     m_trackerList->setSpacing(2);
-    trackerLayout->addWidget(trackerLabel);
     trackerLayout->addWidget(m_trackerList, 1);
-    cameraLayout->addLayout(trackerLayout);
-    
-    // Video display
-    m_videoLabel = new VideoLabel(this);
-    m_videoLabel->setStyleSheet("QLabel { background-color: black; border: 2px solid gray; }");
-    m_videoLabel->setMinimumSize(640, 480);
-    cameraLayout->addWidget(m_videoLabel);
-    
-    mainLayout->addWidget(m_cameraGroup);
-    
+    settingsLayout->addWidget(trackerGroup);
+
     // Control buttons
     QHBoxLayout *buttonLayout = new QHBoxLayout();
-    m_stopTrackingBtn = new OutlineButton("Stop Tracking", this);
-    m_clearSelectionBtn = new OutlineButton("Clear Selection", this);
-
+    buttonLayout->setSpacing(6);
+    m_stopTrackingBtn = new OutlineButton("⏹ Stop", this);
+    m_clearSelectionBtn = new OutlineButton("✕ Clear", this);
     m_stopTrackingBtn->setEnabled(false);
-
-    buttonLayout->addWidget(m_stopTrackingBtn);
-    buttonLayout->addWidget(m_clearSelectionBtn);
-    buttonLayout->addStretch();
-
-    mainLayout->addLayout(buttonLayout);
+    buttonLayout->addWidget(m_stopTrackingBtn, 1);
+    buttonLayout->addWidget(m_clearSelectionBtn, 1);
+    settingsLayout->addLayout(buttonLayout);
 
     // AI Control Section
-    QGroupBox *aiGroup = new QGroupBox("AI Object Recognition", this);
+    QGroupBox *aiGroup = new QGroupBox("🤖 AI Recognition", this);
     QVBoxLayout *aiLayout = new QVBoxLayout(aiGroup);
+    aiLayout->setSpacing(6);
 
     // AI buttons
     QHBoxLayout *aiButtonLayout = new QHBoxLayout();
-    m_aiToggleBtn = new OutlineButton("Enable AI", this);
+    aiButtonLayout->setSpacing(4);
+    m_aiToggleBtn = new OutlineButton("Enable", this);
     m_aiToggleBtn->setCheckable(true);
     m_aiToggleBtn->setEnabled(false);
-    m_aiSaveBtn = new OutlineButton("Save Model", this);
-    m_aiLoadBtn = new OutlineButton("Load Model", this);
-    OutlineButton *yoloBtn = new OutlineButton("Use YOLO", this);
-
-    aiButtonLayout->addWidget(m_aiToggleBtn);
+    m_aiSaveBtn = new OutlineButton("Save", this);
+    m_aiLoadBtn = new OutlineButton("Load", this);
+    
+    aiButtonLayout->addWidget(m_aiToggleBtn, 1);
     aiButtonLayout->addWidget(m_aiSaveBtn);
     aiButtonLayout->addWidget(m_aiLoadBtn);
-    aiButtonLayout->addWidget(yoloBtn);
     aiLayout->addLayout(aiButtonLayout);
+    
+    // YOLO button
+    OutlineButton *yoloBtn = new OutlineButton("🧠 Use YOLO", this);
+    aiLayout->addWidget(yoloBtn);
 
     // AI settings
     QHBoxLayout *aiSettingsLayout = new QHBoxLayout();
-    QLabel *intervalLabel = new QLabel("Detect every:", this);
+    QLabel *intervalLabel = new QLabel("Interval:", this);
     m_aiFrameIntervalCombo = new QComboBox(this);
     m_aiFrameIntervalCombo->addItem("5 frames", 5);
     m_aiFrameIntervalCombo->addItem("10 frames", 10);
     m_aiFrameIntervalCombo->addItem("15 frames", 15);
     m_aiFrameIntervalCombo->addItem("20 frames", 20);
     m_aiFrameIntervalCombo->addItem("30 frames", 30);
-    m_aiFrameIntervalCombo->setCurrentIndex(2); // 15 frames by default
+    m_aiFrameIntervalCombo->setCurrentIndex(2);
     m_aiFrameIntervalCombo->setEnabled(false);
     aiSettingsLayout->addWidget(intervalLabel);
-    aiSettingsLayout->addWidget(m_aiFrameIntervalCombo);
-    aiSettingsLayout->addStretch();
+    aiSettingsLayout->addWidget(m_aiFrameIntervalCombo, 1);
     aiLayout->addLayout(aiSettingsLayout);
 
     // AI status
     m_aiStatusLabel = new QLabel("AI: Disabled", this);
-    m_aiStatusLabel->setStyleSheet("color: #888;");
+    m_aiStatusLabel->setStyleSheet("color: #888; font-style: italic;");
     aiLayout->addWidget(m_aiStatusLabel);
+    
+    settingsLayout->addWidget(aiGroup);
 
-    mainLayout->addWidget(aiGroup);
+    // Add stretch to push content to top
+    settingsLayout->addStretch();
+
+    scrollArea->setWidget(settingsPanel);
+    mainLayout->addWidget(scrollArea);
 
     // Connect AI signals
     connect(m_aiToggleBtn, &QPushButton::clicked, this, &MainWindow::onToggleAI);
@@ -206,18 +284,6 @@ void MainWindow::setupUI()
     connect(m_aiFrameIntervalCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onAIFrameIntervalChanged);
     connect(yoloBtn, &QPushButton::clicked, this, &MainWindow::onSetupYOLO);
-    
-    // Status and performance info
-    m_statusLabel = new QLabel("Status: No camera selected", this);
-    mainLayout->addWidget(m_statusLabel);
-    
-    QHBoxLayout *metricsLayout = new QHBoxLayout();
-    m_fpsLabel = new QLabel("FPS: 0.0", this);
-    m_delayLabel = new QLabel("Delay: 0 ms", this);
-    metricsLayout->addWidget(m_fpsLabel);
-    metricsLayout->addWidget(m_delayLabel);
-    metricsLayout->addStretch();
-    mainLayout->addLayout(metricsLayout);
     
     // Connect signals
     connect(m_cameraCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), 
@@ -233,7 +299,7 @@ void MainWindow::setupUI()
     
     // Set window properties
     setWindowTitle("Computer Vision - Webcam Tracker");
-    resize(800, 700);
+    resize(1024, 680);
 }
 
 void MainWindow::populateCameras()
