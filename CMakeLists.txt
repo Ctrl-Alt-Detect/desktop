@@ -30,6 +30,8 @@ set(PROJECT_SOURCES
         windowcontrols.h
         videolabel.cpp
         videolabel.h
+        aicore.cpp
+        aicore.h
 )
 
 if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)

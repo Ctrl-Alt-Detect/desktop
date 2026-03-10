@@ -6,6 +6,7 @@
 #include <QRect>
 #include <QImage>
 #include <QSize>
+#include <QPoint>
 #include <opencv2/opencv.hpp>
 
 class VideoLabel : public QLabel
@@ -14,11 +15,15 @@ class VideoLabel : public QLabel
 
 public:
     explicit VideoLabel(QWidget *parent = nullptr);
-    
+
     void setFrame(const cv::Mat &frame);
     QRect getSelectedRect() const { return m_selectedRect; }
     bool hasSelection() const { return m_hasSelection; }
     void clearSelection();
+    
+    // Helper methods for coordinate conversion
+    QSize getScaledImageSize() const;
+    QPoint getImageOffset() const;
 
 signals:
     void rectangleSelected(QRect rect);

@@ -36,7 +36,7 @@ void VideoLabel::setFrame(const cv::Mat &frame)
                               QImage::Format_BGR888);
     }
     m_frameDirty = true;
-    
+
     update();
 }
 
@@ -45,6 +45,18 @@ void VideoLabel::clearSelection()
     m_hasSelection = false;
     m_selectedRect = QRect();
     update();
+}
+
+QSize VideoLabel::getScaledImageSize() const
+{
+    return m_scaledSize;
+}
+
+QPoint VideoLabel::getImageOffset() const
+{
+    int x = (width() - m_scaledImage.width()) / 2;
+    int y = (height() - m_scaledImage.height()) / 2;
+    return QPoint(x, y);
 }
 
 void VideoLabel::mousePressEvent(QMouseEvent *event)
@@ -73,20 +85,20 @@ void VideoLabel::mouseReleaseEvent(QMouseEvent *event)
     {
         m_endPoint = event->pos();
         m_drawing = false;
-        
+
         // Calculate the rectangle in widget coordinates
         int x = qMin(m_startPoint.x(), m_endPoint.x());
         int y = qMin(m_startPoint.y(), m_endPoint.y());
         int w = qAbs(m_endPoint.x() - m_startPoint.x());
         int h = qAbs(m_endPoint.y() - m_startPoint.y());
-        
+
         if (w > 5 && h > 5) // Minimum size threshold
         {
             m_selectedRect = QRect(x, y, w, h);
             m_hasSelection = true;
             emit rectangleSelected(m_selectedRect);
         }
-        
+
         update();
     }
 }
@@ -94,11 +106,11 @@ void VideoLabel::mouseReleaseEvent(QMouseEvent *event)
 void VideoLabel::paintEvent(QPaintEvent *event)
 {
     QLabel::paintEvent(event);
-    
+
     if (m_frameImage.isNull()) return;
 
     QPainter painter(this);
-    
+
     // Calculate scaled pixmap to fit label while maintaining aspect ratio
     QSize targetSize = m_frameImage.size();
     targetSize.scale(size(), Qt::KeepAspectRatio);
@@ -109,18 +121,18 @@ void VideoLabel::paintEvent(QPaintEvent *event)
         m_scaledSize = targetSize;
         m_frameDirty = false;
     }
-    
+
     // Center the pixmap
     int x = (width() - m_scaledImage.width()) / 2;
     int y = (height() - m_scaledImage.height()) / 2;
-    
+
     painter.drawImage(x, y, m_scaledImage);
-    
+
     // Draw the selection rectangle
     if (m_drawing || m_hasSelection)
     {
         painter.setPen(QPen(Qt::green, 2));
-        
+
         QRect drawRect;
         if (m_drawing)
         {
@@ -134,7 +146,7 @@ void VideoLabel::paintEvent(QPaintEvent *event)
         {
             drawRect = m_selectedRect;
         }
-        
+
         painter.drawRect(drawRect);
     }
 }
