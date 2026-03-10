@@ -49,6 +49,8 @@ private:
     void populateCameras();
     void populateTrackers();
     cv::Rect convertQRectToCvRect(const QRect &qrect, const QSize &labelSize, const QSize &frameSize);
+    cv::Rect convertQRectToCvRect(const QRect &qrect, const QSize &labelSize, const QSize &frameSize,
+                                   const QSize &scaledSize, const QPoint &offset);
     cv::Ptr<cv::Tracker> createTracker(TrackerType type);
     QList<TrackerType> getSelectedTrackers();
     void updateDrawingEnabled();
@@ -76,7 +78,7 @@ private:
     cv::VideoCapture m_capture;
     cv::Mat m_currentFrame;
     QTimer *m_timer;
-    
+
     // Tracking
     QList<cv::Ptr<cv::Tracker>> m_trackers;
     QList<cv::Rect> m_trackingRects;

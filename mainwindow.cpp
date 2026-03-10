@@ -330,18 +330,18 @@ void MainWindow::onUpdateFrame()
     {
         int successCount = 0;
         m_trackingRects.clear();
-        
+
         // Update all trackers
         for (int i = 0; i < m_trackers.size(); i++)
         {
-            cv::Rect rect = m_trackingRects.size() > i ? m_trackingRects[i] : m_averagedRect;
-            bool ok = m_trackers[i]->update(m_currentFrame, rect);
-            
+            cv::Rect updatedRect;
+            bool ok = m_trackers[i]->update(m_currentFrame, updatedRect);
+
             if (!ok) continue;
-            m_trackingRects.append(rect);
+            m_trackingRects.append(updatedRect);
             successCount++;
         }
-        
+
         if (successCount > 0)
         {
             // Calculate averaged rectangle
@@ -357,15 +357,15 @@ void MainWindow::onUpdateFrame()
             avgY /= successCount;
             avgW /= successCount;
             avgH /= successCount;
-            
+
             m_averagedRect = cv::Rect(avgX, avgY, avgW, avgH);
             cv::rectangle(displayFrame, m_averagedRect, cv::Scalar(0, 255, 0), 2);
-            
+
             // Draw center point
             cv::Point center(m_averagedRect.x + m_averagedRect.width / 2,
                            m_averagedRect.y + m_averagedRect.height / 2);
             cv::circle(displayFrame, center, 3, cv::Scalar(0, 0, 255), -1);
-            
+
             QString status = QString("Status: Tracking (%1 tracker%2) - Position (%3, %4)")
                             .arg(successCount)
                             .arg(successCount > 1 ? "s" : "")
@@ -408,9 +408,14 @@ void MainWindow::onRectangleSelected(QRect rect)
     // Clear the selection rectangle from the video label since tracking will show it
     m_videoLabel->clearSelection();
 
-    // Convert rectangle coordinates
+    // Get the actual scaled image size and offset from VideoLabel
+    QSize scaledSize = m_videoLabel->getScaledImageSize();
+    QPoint offset = m_videoLabel->getImageOffset();
+    
+    // Convert rectangle coordinates using the actual scaled image info
     cv::Rect initRect = convertQRectToCvRect(rect, m_videoLabel->size(),
-                                            QSize(m_currentFrame.cols, m_currentFrame.rows));
+                                            QSize(m_currentFrame.cols, m_currentFrame.rows),
+                                            scaledSize, offset);
 
     m_averagedRect = initRect;
 
@@ -483,18 +488,50 @@ cv::Rect MainWindow::convertQRectToCvRect(const QRect &qrect, const QSize &label
     double scaleX = static_cast<double>(frameSize.width()) / labelSize.width();
     double scaleY = static_cast<double>(frameSize.height()) / labelSize.height();
     
-    // Use the smaller scale to maintain aspect ratio
-    double scale = qMin(scaleX, scaleY);
+    // Use the larger scale (image is scaled to fit while maintaining aspect ratio)
+    // The image will be letterboxed/pillarboxed in the label
+    double scale = qMax(scaleX, scaleY);
     
-    // Calculate the offset (centering)
-    int offsetX = (labelSize.width() - frameSize.width() / scale) / 2;
-    int offsetY = (labelSize.height() - frameSize.height() / scale) / 2;
+    // Calculate the actual scaled image size
+    int scaledWidth = static_cast<int>(frameSize.width() / scale);
+    int scaledHeight = static_cast<int>(frameSize.height() / scale);
     
-    // Convert coordinates
+    // Calculate the offset (centering) - where the image starts within the label
+    int offsetX = (labelSize.width() - scaledWidth) / 2;
+    int offsetY = (labelSize.height() - scaledHeight) / 2;
+    
+    // Convert coordinates from label space to frame space
     int x = static_cast<int>((qrect.x() - offsetX) * scale);
     int y = static_cast<int>((qrect.y() - offsetY) * scale);
     int w = static_cast<int>(qrect.width() * scale);
     int h = static_cast<int>(qrect.height() * scale);
+    
+    // Clamp to frame boundaries
+    x = qMax(0, qMin(x, frameSize.width() - 1));
+    y = qMax(0, qMin(y, frameSize.height() - 1));
+    w = qMax(1, qMin(w, frameSize.width() - x));
+    h = qMax(1, qMin(h, frameSize.height() - y));
+    
+    return cv::Rect(x, y, w, h);
+}
+
+cv::Rect MainWindow::convertQRectToCvRect(const QRect &qrect, const QSize &labelSize, const QSize &frameSize,
+                                           const QSize &scaledSize, const QPoint &offset)
+{
+    // Calculate scale from original frame to scaled image displayed on screen
+    double scaleX = static_cast<double>(scaledSize.width()) / frameSize.width();
+    double scaleY = static_cast<double>(scaledSize.height()) / frameSize.height();
+    
+    // Both scales should be equal since Qt maintains aspect ratio
+    double scale = qMin(scaleX, scaleY);
+    
+    // Convert coordinates from label space (widget coordinates) to frame space
+    // First subtract the offset to get coordinates within the scaled image
+    // Then divide by scale to get original frame coordinates
+    int x = static_cast<int>((qrect.x() - offset.x()) / scale);
+    int y = static_cast<int>((qrect.y() - offset.y()) / scale);
+    int w = static_cast<int>(qrect.width() / scale);
+    int h = static_cast<int>(qrect.height() / scale);
     
     // Clamp to frame boundaries
     x = qMax(0, qMin(x, frameSize.width() - 1));
