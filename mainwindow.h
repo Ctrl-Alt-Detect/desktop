@@ -48,6 +48,7 @@ private:
     void setupUI();
     void populateCameras();
     void populateTrackers();
+    bool openCameraWithGStreamer(int cameraIndex);
     cv::Rect convertQRectToCvRect(const QRect &qrect, const QSize &labelSize, const QSize &frameSize);
     cv::Rect convertQRectToCvRect(const QRect &qrect, const QSize &labelSize, const QSize &frameSize,
                                    const QSize &scaledSize, const QPoint &offset);

@@ -115,9 +115,15 @@ void VideoLabel::paintEvent(QPaintEvent *event)
     QSize targetSize = m_frameImage.size();
     targetSize.scale(size(), Qt::KeepAspectRatio);
 
-    if (m_frameDirty || m_scaledSize != targetSize)
+    // Only rescale if frame changed OR if size changed significantly (more than 5 pixels)
+    bool sizeChanged = (m_scaledSize != targetSize) && 
+                       (qAbs(m_scaledSize.width() - targetSize.width()) > 5 || 
+                        qAbs(m_scaledSize.height() - targetSize.height()) > 5);
+    
+    if (m_frameDirty || sizeChanged)
     {
-        m_scaledImage = m_frameImage.scaled(targetSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+        // Use FastTransformation for real-time video - much faster than SmoothTransformation
+        m_scaledImage = m_frameImage.scaled(targetSize, Qt::KeepAspectRatio, Qt::FastTransformation);
         m_scaledSize = targetSize;
         m_frameDirty = false;
     }

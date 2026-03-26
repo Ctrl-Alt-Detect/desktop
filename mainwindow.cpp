@@ -305,15 +305,29 @@ void MainWindow::setupUI()
 void MainWindow::populateCameras()
 {
     m_cameraCombo->addItem("Select a camera...", -1);
-    
-    // Try to detect available cameras (usually 0-5 are common indices)
+
+    // Try to detect available cameras using GStreamer
     for (int i = 0; i < 10; i++)
     {
-        cv::VideoCapture testCapture(i);
+        // Simple pipeline - let camera choose format
+        QString pipeline = QString(
+            "mfvideosrc device-index=%1 ! "
+            "image/jpeg, framerate=30/1 ! "
+            "appsink"
+        ).arg(i);
+
+        qInfo() << "Testing camera" << i << "with pipeline:" << pipeline;
+        cv::VideoCapture testCapture(pipeline.toStdString(), cv::CAP_GSTREAMER);
+        
         if (testCapture.isOpened())
         {
+            qInfo() << "Camera" << i << "opened successfully";
             m_cameraCombo->addItem(QString("Camera %1").arg(i), i);
             testCapture.release();
+        }
+        else
+        {
+            qInfo() << "Camera" << i << "failed to open";
         }
     }
 }
@@ -343,27 +357,54 @@ void MainWindow::onCameraChanged(int index)
         m_timer->stop();
         m_capture.release();
     }
-    
+
     onStopTracking();
     m_videoLabel->clearSelection();
-    
+
     if (index <= 0)
     {
         m_statusLabel->setText("Status: No camera selected");
         return;
     }
-    
+
     int cameraIndex = m_cameraCombo->itemData(index).toInt();
+
+    // Try GStreamer backend first for better performance
+    bool opened = openCameraWithGStreamer(cameraIndex);
     
-    if (m_capture.open(cameraIndex))
+    // Fallback to default backend if GStreamer fails
+    if (!opened)
     {
-        m_statusLabel->setText(QString("Status: Camera %1 active").arg(cameraIndex));
-        m_timer->start(33); // ~30 FPS
+        qWarning() << "GStreamer failed, falling back to default backend";
+        opened = m_capture.open(cameraIndex);
+    }
+
+    if (opened)
+    {
+        // Set optimal capture properties for performance
+        m_capture.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
+        m_capture.set(cv::CAP_PROP_FRAME_WIDTH, 1280);
+        m_capture.set(cv::CAP_PROP_FRAME_HEIGHT, 720);
+        m_capture.set(cv::CAP_PROP_FPS, 30);
+
+        m_statusLabel->setText(QString("Status: Camera %1 active (GStreamer)").arg(cameraIndex));
+        m_timer->start(16); // ~60 FPS target for smooth display
+        qInfo() << "Camera opened with GStreamer - timer interval: 16ms";
     }
     else
     {
         m_statusLabel->setText(QString("Status: Failed to open Camera %1").arg(cameraIndex));
     }
+}
+
+bool MainWindow::openCameraWithGStreamer(int cameraIndex)
+{
+    QString pipeline = QString(
+        "mfvideosrc device-index=%1 ! "
+        "image/jpeg, width=(int)1280, height=(int)720, framerate=(fraction)30/1"
+    ).arg(cameraIndex);
+
+    return m_capture.open(pipeline.toStdString(), cv::CAP_GSTREAMER);
 }
 
 void MainWindow::onUpdateFrame()
