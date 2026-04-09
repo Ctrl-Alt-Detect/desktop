@@ -103,11 +103,14 @@ void CameraWorker::run() {
     while (m_running) {
         if (m_isVideoFile) {
             const int seekFrame = m_seekFrame.exchange(-1);
+            const bool hasSeekRequest = seekFrame >= 0;
             if (seekFrame >= 0) {
                 m_cap.set(cv::CAP_PROP_POS_FRAMES, static_cast<double>(seekFrame));
             }
 
-            if (m_paused) {
+            // Keep paused playback responsive: if a seek was requested while paused,
+            // process one frame so the UI immediately shows the new position.
+            if (m_paused && !hasSeekRequest) {
                 QThread::msleep(15);
                 continue;
             }
@@ -167,6 +170,11 @@ void CameraWorker::run() {
         if (m_isVideoFile) {
             const int currentFrame = static_cast<int>(m_cap.get(cv::CAP_PROP_POS_FRAMES));
             emit positionChanged(std::max(0, currentFrame - 1));
+
+            if (m_paused) {
+                QThread::msleep(15);
+                continue;
+            }
 
             const double speed = std::max(0.1, m_playbackSpeed.load());
             const int delayMs = static_cast<int>(1000.0 / (fps * speed));
