@@ -114,6 +114,11 @@ void MainWindow::onPlayPauseClicked() {
         return;
     }
 
+    const bool atVideoEnd = m_seekSlider && (m_seekSlider->maximum() > 0) && (m_seekSlider->value() >= m_seekSlider->maximum());
+    if (m_isPaused && atVideoEnd) {
+        m_camera->seekToFrame(0);
+    }
+
     m_isPaused = !m_isPaused;
     m_playPauseButton->setText(m_isPaused ? "Play" : "Pause");
     m_camera->setPaused(m_isPaused);
@@ -149,6 +154,17 @@ void MainWindow::onVideoInfo(int totalFrames, double fps) {
 void MainWindow::onVideoPosition(int frameIndex) {
     if (!m_seekSlider->isSliderDown()) {
         m_seekSlider->setValue(frameIndex);
+    }
+}
+
+void MainWindow::onPlaybackEnded() {
+    if (!m_isVideoMode) {
+        return;
+    }
+
+    m_isPaused = true;
+    if (m_playPauseButton) {
+        m_playPauseButton->setText("Play");
     }
 }
 
@@ -194,6 +210,7 @@ void MainWindow::startSource(const QString& source, bool useGstreamer) {
     connect(m_camera, &CameraWorker::finished, m_thread, &QThread::quit);
     connect(m_camera, &CameraWorker::videoInfo, this, &MainWindow::onVideoInfo, Qt::QueuedConnection);
     connect(m_camera, &CameraWorker::positionChanged, this, &MainWindow::onVideoPosition, Qt::QueuedConnection);
+    connect(m_camera, &CameraWorker::playbackEnded, this, &MainWindow::onPlaybackEnded, Qt::QueuedConnection);
     connect(m_videoLabel, &VideoLabel::selectionMade, this, &MainWindow::onTrackerSelection);
     connect(m_videoLabel, &VideoLabel::trackerReset, this, &MainWindow::onTrackerReset);
 

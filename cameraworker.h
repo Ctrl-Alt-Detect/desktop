@@ -25,6 +25,7 @@ signals:
     void frameReady(const QImage& frame);
     void videoInfo(int totalFrames, double fps);
     void positionChanged(int frameIndex);
+    void playbackEnded();
     void trackerStateChanged(bool active);
     void finished();
 

@@ -23,6 +23,7 @@ private slots:
     void onSeekReleased();
     void onVideoInfo(int totalFrames, double fps);
     void onVideoPosition(int frameIndex);
+    void onPlaybackEnded();
     void onTrackerSelection(int x, int y, int width, int height);
     void onTrackerReset();
     void onCameraResolutionChanged(int index);

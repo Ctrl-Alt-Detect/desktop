@@ -116,7 +116,11 @@ void CameraWorker::run() {
         if (!m_cap.read(frame)) {
             if (m_isVideoFile) {
                 qInfo() << "Reached end of video:" << m_source;
-                break;
+                m_paused = true;
+                m_seekFrame = 0;
+                emit playbackEnded();
+                QThread::msleep(15);
+                continue;
             }
             qWarning() << "Failed to grab frame";
             continue;
