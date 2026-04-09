@@ -7,6 +7,7 @@
 #include <QMap>
 #include <QRect>
 #include <QString>
+#include <QListWidget>
 #include "cameraworker.h"
 #include "videolabel.h"
 
@@ -29,6 +30,9 @@ private slots:
     void onTrackerSelection(int x, int y, int width, int height);
     void onTrackerReset();
     void onCameraResolutionChanged(int index);
+    void onRemoveEventClicked();
+    void onClearEventsClicked();
+    void onEventActivated(QListWidgetItem* item);
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -46,6 +50,9 @@ private:
 
     int currentVideoFrame() const;
     void applyTrackingEventForFrame(int frameIndex);
+    void refreshTrackingEventsUi();
+    QString trackingEventText(int frameIndex, const TrackingEvent& event) const;
+    QString frameToTimeText(int frameIndex) const;
 
     void startSource(const QString& source, bool useGstreamer);
     void stopCameraThread();
@@ -62,10 +69,15 @@ private:
     QLabel* m_seekTextLabel{nullptr};
     QLabel* m_speedTextLabel{nullptr};
     QLabel* m_speedValueLabel{nullptr};
+    QLabel* m_eventsTextLabel{nullptr};
     QSlider* m_seekSlider{nullptr};
     QSlider* m_speedSlider{nullptr};
+    QListWidget* m_eventsList{nullptr};
+    QPushButton* m_removeEventButton{nullptr};
+    QPushButton* m_clearEventsButton{nullptr};
     QMap<int, TrackingEvent> m_trackingTimeline;
     int m_lastAppliedTimelineFrame{-1};
+    double m_videoFps{30.0};
     bool m_isVideoMode{false};
     bool m_isPaused{false};
 };

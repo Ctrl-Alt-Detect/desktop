@@ -7,6 +7,7 @@
 #include <QCloseEvent>
 #include <QSizePolicy>
 #include <QComboBox>
+#include <QListWidgetItem>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle("Qt5 OpenCV Viewer");
@@ -34,8 +35,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_seekTextLabel = new QLabel("Seek", this);
     m_speedTextLabel = new QLabel("Speed", this);
     m_speedValueLabel = new QLabel("1.00x", this);
+    m_eventsTextLabel = new QLabel("Events", this);
     m_seekSlider = new QSlider(Qt::Horizontal, this);
     m_speedSlider = new QSlider(Qt::Horizontal, this);
+    m_eventsList = new QListWidget(this);
+    m_removeEventButton = new QPushButton("Remove", this);
+    m_clearEventsButton = new QPushButton("Clear", this);
 
     m_seekSlider->setRange(0, 0);
     m_seekSlider->setMinimumWidth(220);
@@ -47,6 +52,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_resolutionCombo->addItem("1920 x 1080", QSize(1920, 1080));
     m_resolutionCombo->setCurrentIndex(0);
     m_resolutionCombo->setFixedWidth(120);
+    m_eventsList->setMinimumWidth(220);
+    m_eventsList->setMaximumWidth(260);
+    m_removeEventButton->setFixedWidth(80);
+    m_clearEventsButton->setFixedWidth(80);
 
     controls->addWidget(cameraButton);
     controls->addWidget(openVideoButton);
@@ -61,7 +70,23 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     controls->addStretch();
 
     layout->addLayout(controls, 0);
-    layout->addWidget(m_videoLabel, 1);
+
+    auto* contentLayout = new QHBoxLayout;
+    contentLayout->setSpacing(8);
+
+    auto* eventsPanel = new QVBoxLayout;
+    eventsPanel->addWidget(m_eventsTextLabel, 0);
+    eventsPanel->addWidget(m_eventsList, 1);
+
+    auto* eventsButtons = new QHBoxLayout;
+    eventsButtons->addWidget(m_removeEventButton);
+    eventsButtons->addWidget(m_clearEventsButton);
+    eventsButtons->addStretch();
+    eventsPanel->addLayout(eventsButtons, 0);
+
+    contentLayout->addLayout(eventsPanel, 0);
+    contentLayout->addWidget(m_videoLabel, 1);
+    layout->addLayout(contentLayout, 1);
 
     connect(cameraButton, &QPushButton::clicked, this, &MainWindow::onCameraClicked);
     connect(openVideoButton, &QPushButton::clicked, this, &MainWindow::onOpenVideoClicked);
@@ -69,6 +94,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(m_resolutionCombo, QOverload<int>::of(&QComboBox::activated), this, &MainWindow::onCameraResolutionChanged);
     connect(m_speedSlider, &QSlider::valueChanged, this, &MainWindow::onSpeedChanged);
     connect(m_seekSlider, &QSlider::sliderReleased, this, &MainWindow::onSeekReleased);
+    connect(m_removeEventButton, &QPushButton::clicked, this, &MainWindow::onRemoveEventClicked);
+    connect(m_clearEventsButton, &QPushButton::clicked, this, &MainWindow::onClearEventsClicked);
+    connect(m_eventsList, &QListWidget::itemDoubleClicked, this, &MainWindow::onEventActivated);
 
     setVideoControlsEnabled(false);
 
@@ -148,7 +176,11 @@ void MainWindow::onSeekReleased() {
 }
 
 void MainWindow::onVideoInfo(int totalFrames, double fps) {
-    Q_UNUSED(fps);
+    if (fps > 1.0 && fps < 240.0) {
+        m_videoFps = fps;
+    } else {
+        m_videoFps = 30.0;
+    }
     m_seekSlider->setRange(0, totalFrames > 0 ? totalFrames - 1 : 0);
 }
 
@@ -180,6 +212,7 @@ void MainWindow::onTrackerSelection(int x, int y, int width, int height) {
             event.roi = QRect(x, y, width, height);
             m_trackingTimeline.insert(frameIndex, event);
             m_lastAppliedTimelineFrame = frameIndex;
+            refreshTrackingEventsUi();
         }
     }
 
@@ -196,6 +229,7 @@ void MainWindow::onTrackerReset() {
             event.type = TrackingEventType::Stop;
             m_trackingTimeline.insert(frameIndex, event);
             m_lastAppliedTimelineFrame = frameIndex;
+            refreshTrackingEventsUi();
         }
     }
 
@@ -209,6 +243,8 @@ void MainWindow::startSource(const QString& source, bool useGstreamer) {
 
     m_trackingTimeline.clear();
     m_lastAppliedTimelineFrame = -1;
+    m_videoFps = 30.0;
+    refreshTrackingEventsUi();
     m_isVideoMode = !useGstreamer;
     m_isPaused = false;
     setVideoControlsEnabled(m_isVideoMode);
@@ -310,6 +346,18 @@ void MainWindow::setVideoControlsEnabled(bool enabled) {
     if (m_speedValueLabel) {
         m_speedValueLabel->setEnabled(enabled);
     }
+    if (m_eventsTextLabel) {
+        m_eventsTextLabel->setEnabled(enabled);
+    }
+    if (m_eventsList) {
+        m_eventsList->setEnabled(enabled);
+    }
+    if (m_removeEventButton) {
+        m_removeEventButton->setEnabled(enabled);
+    }
+    if (m_clearEventsButton) {
+        m_clearEventsButton->setEnabled(enabled);
+    }
 }
 
 void MainWindow::updateFrame(const QImage& frame) {
@@ -348,4 +396,70 @@ void MainWindow::applyTrackingEventForFrame(int frameIndex) {
     }
 
     m_lastAppliedTimelineFrame = frameIndex;
+}
+
+void MainWindow::onRemoveEventClicked() {
+    if (!m_eventsList) {
+        return;
+    }
+
+    QListWidgetItem* selectedItem = m_eventsList->currentItem();
+    if (!selectedItem) {
+        return;
+    }
+
+    const int frameIndex = selectedItem->data(Qt::UserRole).toInt();
+    m_trackingTimeline.remove(frameIndex);
+    m_lastAppliedTimelineFrame = -1;
+    refreshTrackingEventsUi();
+}
+
+void MainWindow::onClearEventsClicked() {
+    if (m_trackingTimeline.isEmpty()) {
+        return;
+    }
+
+    m_trackingTimeline.clear();
+    m_lastAppliedTimelineFrame = -1;
+    refreshTrackingEventsUi();
+}
+
+void MainWindow::onEventActivated(QListWidgetItem* item) {
+    if (!item || !m_isVideoMode || !m_camera || !m_seekSlider) {
+        return;
+    }
+
+    const int frameIndex = item->data(Qt::UserRole).toInt();
+    m_seekSlider->setValue(frameIndex);
+    m_camera->seekToFrame(frameIndex);
+    applyTrackingEventForFrame(frameIndex);
+}
+
+void MainWindow::refreshTrackingEventsUi() {
+    if (!m_eventsList) {
+        return;
+    }
+
+    m_eventsList->clear();
+    for (auto it = m_trackingTimeline.constBegin(); it != m_trackingTimeline.constEnd(); ++it) {
+        auto* item = new QListWidgetItem(trackingEventText(it.key(), it.value()), m_eventsList);
+        item->setData(Qt::UserRole, it.key());
+    }
+}
+
+QString MainWindow::trackingEventText(int frameIndex, const TrackingEvent& event) const {
+    const QString typeText = (event.type == TrackingEventType::SetRoi) ? "Set ROI" : "Stop";
+    return QString("%1  |  %2").arg(frameToTimeText(frameIndex), typeText);
+}
+
+QString MainWindow::frameToTimeText(int frameIndex) const {
+    const double fps = (m_videoFps > 0.0) ? m_videoFps : 30.0;
+    const int totalMs = static_cast<int>((1000.0 * frameIndex) / fps);
+    const int minutes = totalMs / 60000;
+    const int seconds = (totalMs % 60000) / 1000;
+    const int millis = totalMs % 1000;
+    return QString("%1:%2.%3")
+        .arg(minutes, 2, 10, QChar('0'))
+        .arg(seconds, 2, 10, QChar('0'))
+        .arg(millis, 3, 10, QChar('0'));
 }
