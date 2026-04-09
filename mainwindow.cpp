@@ -33,6 +33,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_resolutionTextLabel = new QLabel("Camera", this);
     m_resolutionCombo = new QComboBox(this);
     m_seekTextLabel = new QLabel("Seek", this);
+    m_seekTimeLabel = new QLabel("00:00.000 / 00:00.000", this);
     m_speedTextLabel = new QLabel("Speed", this);
     m_speedValueLabel = new QLabel("1.00x", this);
     m_eventsTextLabel = new QLabel("Events", this);
@@ -44,6 +45,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 
     m_seekSlider->setRange(0, 0);
     m_seekSlider->setMinimumWidth(220);
+    m_seekTimeLabel->setMinimumWidth(140);
     m_speedSlider->setRange(25, 300);
     m_speedSlider->setValue(100);
     m_speedSlider->setFixedWidth(140);
@@ -64,6 +66,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     controls->addWidget(m_resolutionCombo);
     controls->addWidget(m_seekTextLabel);
     controls->addWidget(m_seekSlider);
+    controls->addWidget(m_seekTimeLabel);
     controls->addWidget(m_speedTextLabel);
     controls->addWidget(m_speedSlider);
     controls->addWidget(m_speedValueLabel);
@@ -94,6 +97,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(m_resolutionCombo, QOverload<int>::of(&QComboBox::activated), this, &MainWindow::onCameraResolutionChanged);
     connect(m_speedSlider, &QSlider::valueChanged, this, &MainWindow::onSpeedChanged);
     connect(m_seekSlider, &QSlider::sliderReleased, this, &MainWindow::onSeekReleased);
+    connect(m_seekSlider, &QSlider::valueChanged, this, &MainWindow::onSeekValueChanged);
     connect(m_removeEventButton, &QPushButton::clicked, this, &MainWindow::onRemoveEventClicked);
     connect(m_clearEventsButton, &QPushButton::clicked, this, &MainWindow::onClearEventsClicked);
     connect(m_eventsList, &QListWidget::itemDoubleClicked, this, &MainWindow::onEventActivated);
@@ -177,13 +181,19 @@ void MainWindow::onSeekReleased() {
     applyTrackingEventForFrame(frameIndex);
 }
 
+void MainWindow::onSeekValueChanged(int value) {
+    updateSeekTimeLabel(value);
+}
+
 void MainWindow::onVideoInfo(int totalFrames, double fps) {
     if (fps > 1.0 && fps < 240.0) {
         m_videoFps = fps;
     } else {
         m_videoFps = 30.0;
     }
+    m_totalVideoFrames = std::max(0, totalFrames);
     m_seekSlider->setRange(0, totalFrames > 0 ? totalFrames - 1 : 0);
+    updateSeekTimeLabel(m_seekSlider->value());
 }
 
 void MainWindow::onVideoPosition(int frameIndex) {
@@ -245,8 +255,10 @@ void MainWindow::startSource(const QString& source, bool useGstreamer) {
 
     m_trackingTimeline.clear();
     m_lastAppliedTimelineFrame = -1;
+    m_totalVideoFrames = 0;
     m_videoFps = 30.0;
     refreshTrackingEventsUi();
+    updateSeekTimeLabel(0);
     m_isVideoMode = !useGstreamer;
     m_isPaused = false;
     setVideoControlsEnabled(m_isVideoMode);
@@ -336,6 +348,12 @@ void MainWindow::setVideoControlsEnabled(bool enabled) {
             m_seekSlider->setValue(0);
         }
     }
+    if (m_seekTimeLabel) {
+        m_seekTimeLabel->setEnabled(enabled);
+        if (!enabled) {
+            updateSeekTimeLabel(0);
+        }
+    }
     if (m_speedSlider) {
         m_speedSlider->setEnabled(enabled);
     }
@@ -373,6 +391,17 @@ int MainWindow::currentVideoFrame() const {
     }
 
     return m_seekSlider->value();
+}
+
+void MainWindow::updateSeekTimeLabel(int currentFrame) {
+    if (!m_seekTimeLabel) {
+        return;
+    }
+
+    const int safeCurrentFrame = std::max(0, currentFrame);
+    const int totalFrameForTime = std::max(0, m_totalVideoFrames);
+    m_seekTimeLabel->setText(QString("%1 / %2")
+        .arg(frameToTimeText(safeCurrentFrame), frameToTimeText(totalFrameForTime)));
 }
 
 void MainWindow::applyTrackingEventForFrame(int frameIndex) {

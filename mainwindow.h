@@ -24,6 +24,7 @@ private slots:
     void onPlayPauseClicked();
     void onSpeedChanged(int value);
     void onSeekReleased();
+    void onSeekValueChanged(int value);
     void onVideoInfo(int totalFrames, double fps);
     void onVideoPosition(int frameIndex);
     void onPlaybackEnded();
@@ -50,6 +51,7 @@ private:
 
     int currentVideoFrame() const;
     void applyTrackingEventForFrame(int frameIndex);
+    void updateSeekTimeLabel(int currentFrame);
     void refreshTrackingEventsUi();
     QString trackingEventText(int frameIndex, const TrackingEvent& event) const;
     QString frameToTimeText(int frameIndex) const;
@@ -67,6 +69,7 @@ private:
     QLabel* m_resolutionTextLabel{nullptr};
     QComboBox* m_resolutionCombo{nullptr};
     QLabel* m_seekTextLabel{nullptr};
+    QLabel* m_seekTimeLabel{nullptr};
     QLabel* m_speedTextLabel{nullptr};
     QLabel* m_speedValueLabel{nullptr};
     QLabel* m_eventsTextLabel{nullptr};
@@ -77,6 +80,7 @@ private:
     QPushButton* m_clearEventsButton{nullptr};
     QMap<int, TrackingEvent> m_trackingTimeline;
     int m_lastAppliedTimelineFrame{-1};
+    int m_totalVideoFrames{0};
     double m_videoFps{30.0};
     bool m_isVideoMode{false};
     bool m_isPaused{false};
