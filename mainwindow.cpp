@@ -6,6 +6,7 @@
 #include <QDebug>
 #include <QCloseEvent>
 #include <QSizePolicy>
+#include <QComboBox>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle("Qt5 OpenCV Viewer");
@@ -28,6 +29,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto* cameraButton = new QPushButton("Camera", this);
     auto* openVideoButton = new QPushButton("Open Video", this);
     m_playPauseButton = new QPushButton("Pause", this);
+    m_resolutionTextLabel = new QLabel("Camera", this);
+    m_resolutionCombo = new QComboBox(this);
     m_seekTextLabel = new QLabel("Seek", this);
     m_speedTextLabel = new QLabel("Speed", this);
     m_speedValueLabel = new QLabel("1.00x", this);
@@ -39,10 +42,17 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_speedSlider->setRange(25, 300);
     m_speedSlider->setValue(100);
     m_speedSlider->setFixedWidth(140);
+    m_resolutionCombo->addItem("640 x 480", QSize(640, 480));
+    m_resolutionCombo->addItem("1280 x 720", QSize(1280, 720));
+    m_resolutionCombo->addItem("1920 x 1080", QSize(1920, 1080));
+    m_resolutionCombo->setCurrentIndex(0);
+    m_resolutionCombo->setFixedWidth(120);
 
     controls->addWidget(cameraButton);
     controls->addWidget(openVideoButton);
     controls->addWidget(m_playPauseButton);
+    controls->addWidget(m_resolutionTextLabel);
+    controls->addWidget(m_resolutionCombo);
     controls->addWidget(m_seekTextLabel);
     controls->addWidget(m_seekSlider);
     controls->addWidget(m_speedTextLabel);
@@ -56,12 +66,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(cameraButton, &QPushButton::clicked, this, &MainWindow::onCameraClicked);
     connect(openVideoButton, &QPushButton::clicked, this, &MainWindow::onOpenVideoClicked);
     connect(m_playPauseButton, &QPushButton::clicked, this, &MainWindow::onPlayPauseClicked);
+    connect(m_resolutionCombo, QOverload<int>::of(&QComboBox::activated), this, &MainWindow::onCameraResolutionChanged);
     connect(m_speedSlider, &QSlider::valueChanged, this, &MainWindow::onSpeedChanged);
     connect(m_seekSlider, &QSlider::sliderReleased, this, &MainWindow::onSeekReleased);
 
     setVideoControlsEnabled(false);
 
-    startSource(m_defaultCameraPipeline, true);
+    startSource(buildCameraPipeline(), true);
 }
 
 MainWindow::~MainWindow() {
@@ -74,7 +85,14 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 }
 
 void MainWindow::onCameraClicked() {
-    startSource(m_defaultCameraPipeline, true);
+    startSource(buildCameraPipeline(), true);
+}
+
+void MainWindow::onCameraResolutionChanged(int index) {
+    Q_UNUSED(index);
+    if (!m_isVideoMode) {
+        startSource(buildCameraPipeline(), true);
+    }
 }
 
 void MainWindow::onOpenVideoClicked() {
@@ -152,6 +170,12 @@ void MainWindow::startSource(const QString& source, bool useGstreamer) {
     m_isVideoMode = !useGstreamer;
     m_isPaused = false;
     setVideoControlsEnabled(m_isVideoMode);
+    if (m_resolutionCombo) {
+        m_resolutionCombo->setEnabled(useGstreamer);
+    }
+    if (m_resolutionTextLabel) {
+        m_resolutionTextLabel->setEnabled(useGstreamer);
+    }
     m_playPauseButton->setText("Pause");
 
     m_camera = new CameraWorker;
@@ -178,6 +202,21 @@ void MainWindow::startSource(const QString& source, bool useGstreamer) {
     if (m_isVideoMode) {
         onSpeedChanged(m_speedSlider->value());
     }
+}
+
+QString MainWindow::buildCameraPipeline() const {
+    if (!m_resolutionCombo) {
+        return m_defaultCameraPipeline;
+    }
+
+    const QSize selectedSize = m_resolutionCombo->currentData().toSize();
+    if (!selectedSize.isValid()) {
+        return m_defaultCameraPipeline;
+    }
+
+    return QString("mfvideosrc ! video/x-raw,width=%1,height=%2 ! videoconvert ! video/x-raw,format=BGR ! appsink")
+        .arg(selectedSize.width())
+        .arg(selectedSize.height());
 }
 
 void MainWindow::stopCameraThread() {
