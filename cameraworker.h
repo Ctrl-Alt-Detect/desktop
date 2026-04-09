@@ -4,7 +4,9 @@
 #include <QThread>
 #include <QString>
 #include <atomic>
+#include <mutex>
 #include <opencv2/opencv.hpp>
+#include <opencv2/tracking.hpp>
 
 class CameraWorker : public QObject {
 Q_OBJECT
@@ -23,6 +25,7 @@ signals:
     void frameReady(const QImage& frame);
     void videoInfo(int totalFrames, double fps);
     void positionChanged(int frameIndex);
+    void trackerStateChanged(bool active);
     void finished();
 
 public slots:
@@ -30,6 +33,9 @@ public slots:
     void setPaused(bool paused);
     void setPlaybackSpeed(double speed);
     void seekToFrame(int frameIndex);
+
+    void initTracker(int x, int y, int width, int height);
+    void resetTracker();
 
 private:
     QString m_source;
@@ -40,4 +46,10 @@ private:
     std::atomic_bool m_paused{false};
     std::atomic_int m_seekFrame{-1};
     std::atomic<double> m_playbackSpeed{1.0};
+
+    std::mutex m_trackerMutex;
+    cv::Ptr<cv::Tracker> m_tracker;
+    bool m_trackerActive{false};
+    bool m_trackerInitialized{false};
+    cv::Rect2d m_trackerBox;
 };

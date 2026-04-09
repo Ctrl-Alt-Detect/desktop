@@ -5,6 +5,7 @@
 #include <QFileDialog>
 #include <QDebug>
 #include <QCloseEvent>
+#include <QSizePolicy>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle("Qt5 OpenCV Viewer");
@@ -13,13 +14,16 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto* central = new QWidget(this);
     setCentralWidget(central);
 
-    m_videoLabel = new QLabel(this);
+    m_videoLabel = new VideoLabel(this);
     m_videoLabel->setAlignment(Qt::AlignCenter);
-    m_videoLabel->setMinimumSize(640, 480);
+    m_videoLabel->setMinimumSize(320, 240);
+    m_videoLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     m_videoLabel->setScaledContents(true);
     // m_videoLabel->setStyleSheet("background: black;");
 
     auto* layout = new QVBoxLayout(central);
+    layout->setContentsMargins(8, 8, 8, 8);
+    layout->setSpacing(6);
     auto* controls = new QHBoxLayout;
     auto* cameraButton = new QPushButton("Camera", this);
     auto* openVideoButton = new QPushButton("Open Video", this);
@@ -46,8 +50,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     controls->addWidget(m_speedValueLabel);
     controls->addStretch();
 
-    layout->addLayout(controls);
-    layout->addWidget(m_videoLabel);
+    layout->addLayout(controls, 0);
+    layout->addWidget(m_videoLabel, 1);
 
     connect(cameraButton, &QPushButton::clicked, this, &MainWindow::onCameraClicked);
     connect(openVideoButton, &QPushButton::clicked, this, &MainWindow::onOpenVideoClicked);
@@ -130,6 +134,18 @@ void MainWindow::onVideoPosition(int frameIndex) {
     }
 }
 
+void MainWindow::onTrackerSelection(int x, int y, int width, int height) {
+    if (m_camera) {
+        m_camera->initTracker(x, y, width, height);
+    }
+}
+
+void MainWindow::onTrackerReset() {
+    if (m_camera) {
+        m_camera->resetTracker();
+    }
+}
+
 void MainWindow::startSource(const QString& source, bool useGstreamer) {
     stopCameraThread();
 
@@ -154,6 +170,8 @@ void MainWindow::startSource(const QString& source, bool useGstreamer) {
     connect(m_camera, &CameraWorker::finished, m_thread, &QThread::quit);
     connect(m_camera, &CameraWorker::videoInfo, this, &MainWindow::onVideoInfo, Qt::QueuedConnection);
     connect(m_camera, &CameraWorker::positionChanged, this, &MainWindow::onVideoPosition, Qt::QueuedConnection);
+    connect(m_videoLabel, &VideoLabel::selectionMade, this, &MainWindow::onTrackerSelection);
+    connect(m_videoLabel, &VideoLabel::trackerReset, this, &MainWindow::onTrackerReset);
 
     m_thread->start();
 
@@ -214,4 +232,5 @@ void MainWindow::setVideoControlsEnabled(bool enabled) {
 
 void MainWindow::updateFrame(const QImage& frame) {
     m_videoLabel->setPixmap(QPixmap::fromImage(frame));
+    m_videoLabel->setFrameSize(frame.width(), frame.height());
 }

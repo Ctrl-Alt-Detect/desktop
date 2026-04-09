@@ -1,5 +1,6 @@
 #include "cameraworker.h"
 #include <QDebug>
+#include <QThread>
 #include <algorithm>
 
 CameraWorker::CameraWorker(QObject* parent) : QObject(parent) {}
@@ -43,6 +44,23 @@ void CameraWorker::setPlaybackSpeed(double speed) {
 
 void CameraWorker::seekToFrame(int frameIndex) {
     m_seekFrame = std::max(0, frameIndex);
+}
+
+void CameraWorker::initTracker(int x, int y, int width, int height) {
+    std::lock_guard<std::mutex> lock(m_trackerMutex);
+    m_trackerBox = cv::Rect2d(x, y, width, height);
+    m_trackerActive = true;
+    m_trackerInitialized = false;
+    m_tracker = cv::TrackerCSRT::create();
+    emit trackerStateChanged(true);
+}
+
+void CameraWorker::resetTracker() {
+    std::lock_guard<std::mutex> lock(m_trackerMutex);
+    m_tracker.release();
+    m_trackerActive = false;
+    m_trackerInitialized = false;
+    emit trackerStateChanged(false);
 }
 
 void CameraWorker::run() {
@@ -109,6 +127,34 @@ void CameraWorker::run() {
                 break;
             }
             continue;
+        }
+
+        // CSRT tracker-based tracking
+        {
+            std::lock_guard<std::mutex> lock(m_trackerMutex);
+            if (m_trackerActive && m_tracker) {
+                // Initialize tracker on first frame after selection
+                if (!m_trackerInitialized) {
+                    cv::Rect trackerRect = static_cast<cv::Rect>(m_trackerBox);
+                    m_tracker->init(frame, trackerRect);
+                    m_trackerInitialized = true;
+                } else {
+                    // Update tracker with new frame
+                    cv::Rect boundingBox = static_cast<cv::Rect>(m_trackerBox);
+                    m_tracker->update(frame, boundingBox);
+                    m_trackerBox = boundingBox;
+                }
+                
+                // Draw tracking bounding box
+                cv::Rect drawRect = static_cast<cv::Rect>(m_trackerBox);
+                drawRect.x = std::max(0, drawRect.x);
+                drawRect.y = std::max(0, drawRect.y);
+                drawRect.width = std::min(drawRect.width, frame.cols - drawRect.x);
+                drawRect.height = std::min(drawRect.height, frame.rows - drawRect.y);
+                if (drawRect.width > 0 && drawRect.height > 0) {
+                    cv::rectangle(frame, drawRect, cv::Scalar(0, 255, 0), 2);
+                }
+            }
         }
 
         QImage img(frame.data, frame.cols, frame.rows, frame.step, QImage::Format_BGR888);

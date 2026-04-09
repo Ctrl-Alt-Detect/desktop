@@ -5,6 +5,7 @@
 #include <QSlider>
 #include <QString>
 #include "cameraworker.h"
+#include "videolabel.h"
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -21,6 +22,8 @@ private slots:
     void onSeekReleased();
     void onVideoInfo(int totalFrames, double fps);
     void onVideoPosition(int frameIndex);
+    void onTrackerSelection(int x, int y, int width, int height);
+    void onTrackerReset();
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -30,9 +33,9 @@ private:
     void stopCameraThread();
     void setVideoControlsEnabled(bool enabled);
 
-    QString m_defaultCameraPipeline{"mfvideosrc ! videoconvert ! video/x-raw,format=BGR ! appsink"};
+    QString m_defaultCameraPipeline{"mfvideosrc ! video/x-raw,width=640 ! videoconvert ! video/x-raw,format=BGR ! appsink"};
     QThread* m_thread{nullptr};
-    QLabel* m_videoLabel{nullptr};
+    VideoLabel* m_videoLabel{nullptr};
     CameraWorker* m_camera{nullptr};
     QPushButton* m_playPauseButton{nullptr};
     QLabel* m_seekTextLabel{nullptr};
