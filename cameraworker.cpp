@@ -106,6 +106,11 @@ void CameraWorker::run() {
             const bool hasSeekRequest = seekFrame >= 0;
             if (seekFrame >= 0) {
                 m_cap.set(cv::CAP_PROP_POS_FRAMES, static_cast<double>(seekFrame));
+                std::lock_guard<std::mutex> lock(m_trackerMutex);
+                if (m_trackerActive) {
+                    m_tracker = cv::TrackerCSRT::create();
+                    m_trackerInitialized = false;
+                }
             }
 
             // Keep paused playback responsive: if a seek was requested while paused,

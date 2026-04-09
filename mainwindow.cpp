@@ -171,7 +171,9 @@ void MainWindow::onSeekReleased() {
     }
 
     const int frameIndex = m_seekSlider->value();
+    m_camera->resetTracker();
     m_camera->seekToFrame(frameIndex);
+    m_lastAppliedTimelineFrame = -1;
     applyTrackingEventForFrame(frameIndex);
 }
 
@@ -431,7 +433,9 @@ void MainWindow::onEventActivated(QListWidgetItem* item) {
 
     const int frameIndex = item->data(Qt::UserRole).toInt();
     m_seekSlider->setValue(frameIndex);
+    m_camera->resetTracker();
     m_camera->seekToFrame(frameIndex);
+    m_lastAppliedTimelineFrame = -1;
     applyTrackingEventForFrame(frameIndex);
 }
 
