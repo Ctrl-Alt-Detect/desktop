@@ -10,7 +10,10 @@ void CameraWorker::start() {
 }
 
 void CameraWorker::stop() {
-    requestStop();
+    m_running = false;
+    if (m_cap.isOpened()) {
+        m_cap.release();
+    }
 }
 
 void CameraWorker::requestStop() {

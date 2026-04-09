@@ -44,17 +44,21 @@ void MainWindow::closeEvent(QCloseEvent* event) {
 
 void MainWindow::stopCameraThread() {
     if (m_camera) {
-        m_camera->requestStop();
-        m_camera = nullptr;
+        m_camera->stop();
     }
 
     if (m_thread) {
+        m_thread->requestInterruption();
+        m_thread->quit();
         if (!m_thread->wait(2000)) {
             qWarning() << "Camera thread did not stop in time; forcing termination";
             m_thread->terminate();
+            m_thread->wait(1000);
         }
-        m_thread = nullptr;
     }
+
+    m_camera = nullptr;
+    m_thread = nullptr;
 }
 
 void MainWindow::updateFrame(const QImage& frame) {
