@@ -144,6 +144,7 @@ void MainWindow::onSeekReleased() {
 
     const int frameIndex = m_seekSlider->value();
     m_camera->seekToFrame(frameIndex);
+    applyTrackingEventForFrame(frameIndex);
 }
 
 void MainWindow::onVideoInfo(int totalFrames, double fps) {
@@ -155,6 +156,8 @@ void MainWindow::onVideoPosition(int frameIndex) {
     if (!m_seekSlider->isSliderDown()) {
         m_seekSlider->setValue(frameIndex);
     }
+
+    applyTrackingEventForFrame(frameIndex);
 }
 
 void MainWindow::onPlaybackEnded() {
@@ -169,12 +172,33 @@ void MainWindow::onPlaybackEnded() {
 }
 
 void MainWindow::onTrackerSelection(int x, int y, int width, int height) {
+    if (m_isVideoMode) {
+        const int frameIndex = currentVideoFrame();
+        if (frameIndex >= 0) {
+            TrackingEvent event;
+            event.type = TrackingEventType::SetRoi;
+            event.roi = QRect(x, y, width, height);
+            m_trackingTimeline.insert(frameIndex, event);
+            m_lastAppliedTimelineFrame = frameIndex;
+        }
+    }
+
     if (m_camera) {
         m_camera->initTracker(x, y, width, height);
     }
 }
 
 void MainWindow::onTrackerReset() {
+    if (m_isVideoMode) {
+        const int frameIndex = currentVideoFrame();
+        if (frameIndex >= 0) {
+            TrackingEvent event;
+            event.type = TrackingEventType::Stop;
+            m_trackingTimeline.insert(frameIndex, event);
+            m_lastAppliedTimelineFrame = frameIndex;
+        }
+    }
+
     if (m_camera) {
         m_camera->resetTracker();
     }
@@ -183,6 +207,8 @@ void MainWindow::onTrackerReset() {
 void MainWindow::startSource(const QString& source, bool useGstreamer) {
     stopCameraThread();
 
+    m_trackingTimeline.clear();
+    m_lastAppliedTimelineFrame = -1;
     m_isVideoMode = !useGstreamer;
     m_isPaused = false;
     setVideoControlsEnabled(m_isVideoMode);
@@ -289,4 +315,37 @@ void MainWindow::setVideoControlsEnabled(bool enabled) {
 void MainWindow::updateFrame(const QImage& frame) {
     m_videoLabel->setPixmap(QPixmap::fromImage(frame));
     m_videoLabel->setFrameSize(frame.width(), frame.height());
+}
+
+int MainWindow::currentVideoFrame() const {
+    if (!m_isVideoMode || !m_seekSlider) {
+        return -1;
+    }
+
+    return m_seekSlider->value();
+}
+
+void MainWindow::applyTrackingEventForFrame(int frameIndex) {
+    if (!m_isVideoMode || !m_camera || frameIndex < 0) {
+        return;
+    }
+
+    if (frameIndex == m_lastAppliedTimelineFrame) {
+        return;
+    }
+
+    const auto it = m_trackingTimeline.constFind(frameIndex);
+    if (it == m_trackingTimeline.constEnd()) {
+        m_lastAppliedTimelineFrame = frameIndex;
+        return;
+    }
+
+    const TrackingEvent& event = it.value();
+    if (event.type == TrackingEventType::SetRoi) {
+        m_camera->initTracker(event.roi.x(), event.roi.y(), event.roi.width(), event.roi.height());
+    } else {
+        m_camera->resetTracker();
+    }
+
+    m_lastAppliedTimelineFrame = frameIndex;
 }

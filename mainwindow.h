@@ -4,6 +4,8 @@
 #include <QPushButton>
 #include <QSlider>
 #include <QComboBox>
+#include <QMap>
+#include <QRect>
 #include <QString>
 #include "cameraworker.h"
 #include "videolabel.h"
@@ -32,6 +34,19 @@ protected:
     void closeEvent(QCloseEvent* event) override;
 
 private:
+    enum class TrackingEventType {
+        SetRoi,
+        Stop
+    };
+
+    struct TrackingEvent {
+        TrackingEventType type{TrackingEventType::Stop};
+        QRect roi;
+    };
+
+    int currentVideoFrame() const;
+    void applyTrackingEventForFrame(int frameIndex);
+
     void startSource(const QString& source, bool useGstreamer);
     void stopCameraThread();
     void setVideoControlsEnabled(bool enabled);
@@ -49,6 +64,8 @@ private:
     QLabel* m_speedValueLabel{nullptr};
     QSlider* m_seekSlider{nullptr};
     QSlider* m_speedSlider{nullptr};
+    QMap<int, TrackingEvent> m_trackingTimeline;
+    int m_lastAppliedTimelineFrame{-1};
     bool m_isVideoMode{false};
     bool m_isPaused{false};
 };
