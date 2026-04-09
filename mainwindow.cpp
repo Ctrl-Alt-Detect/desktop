@@ -24,6 +24,9 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto* cameraButton = new QPushButton("Camera", this);
     auto* openVideoButton = new QPushButton("Open Video", this);
     m_playPauseButton = new QPushButton("Pause", this);
+    m_seekTextLabel = new QLabel("Seek", this);
+    m_speedTextLabel = new QLabel("Speed", this);
+    m_speedValueLabel = new QLabel("1.00x", this);
     m_seekSlider = new QSlider(Qt::Horizontal, this);
     m_speedSlider = new QSlider(Qt::Horizontal, this);
 
@@ -36,8 +39,11 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     controls->addWidget(cameraButton);
     controls->addWidget(openVideoButton);
     controls->addWidget(m_playPauseButton);
+    controls->addWidget(m_seekTextLabel);
     controls->addWidget(m_seekSlider);
+    controls->addWidget(m_speedTextLabel);
     controls->addWidget(m_speedSlider);
+    controls->addWidget(m_speedValueLabel);
     controls->addStretch();
 
     layout->addLayout(controls);
@@ -92,11 +98,15 @@ void MainWindow::onPlayPauseClicked() {
 }
 
 void MainWindow::onSpeedChanged(int value) {
+    const double speed = static_cast<double>(value) / 100.0;
+    if (m_speedValueLabel) {
+        m_speedValueLabel->setText(QString::number(speed, 'f', 2) + "x");
+    }
+
     if (!m_camera || !m_isVideoMode) {
         return;
     }
 
-    const double speed = static_cast<double>(value) / 100.0;
     m_camera->setPlaybackSpeed(speed);
 }
 
@@ -190,6 +200,15 @@ void MainWindow::setVideoControlsEnabled(bool enabled) {
     }
     if (m_speedSlider) {
         m_speedSlider->setEnabled(enabled);
+    }
+    if (m_seekTextLabel) {
+        m_seekTextLabel->setEnabled(enabled);
+    }
+    if (m_speedTextLabel) {
+        m_speedTextLabel->setEnabled(enabled);
+    }
+    if (m_speedValueLabel) {
+        m_speedValueLabel->setEnabled(enabled);
     }
 }
 

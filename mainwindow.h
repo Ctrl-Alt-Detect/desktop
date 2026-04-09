@@ -35,6 +35,9 @@ private:
     QLabel* m_videoLabel{nullptr};
     CameraWorker* m_camera{nullptr};
     QPushButton* m_playPauseButton{nullptr};
+    QLabel* m_seekTextLabel{nullptr};
+    QLabel* m_speedTextLabel{nullptr};
+    QLabel* m_speedValueLabel{nullptr};
     QSlider* m_seekSlider{nullptr};
     QSlider* m_speedSlider{nullptr};
     bool m_isVideoMode{false};
