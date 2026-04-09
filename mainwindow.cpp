@@ -8,6 +8,8 @@
 #include <QSizePolicy>
 #include <QComboBox>
 #include <QListWidgetItem>
+#include <QMenu>
+#include <QAction>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle("Qt5 OpenCV Viewer");
@@ -36,6 +38,8 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_seekTimeLabel = new QLabel("00:00.000 / 00:00.000", this);
     m_speedTextLabel = new QLabel("Speed", this);
     m_speedValueLabel = new QLabel("1.00x", this);
+    m_trackerTextLabel = new QLabel("Trackers", this);
+    m_trackerPickerButton = new QPushButton(this);
     m_eventsTextLabel = new QLabel("Events", this);
     m_seekSlider = new QSlider(Qt::Horizontal, this);
     m_speedSlider = new QSlider(Qt::Horizontal, this);
@@ -54,6 +58,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_resolutionCombo->addItem("1920 x 1080", QSize(1920, 1080));
     m_resolutionCombo->setCurrentIndex(0);
     m_resolutionCombo->setFixedWidth(120);
+    m_trackerPickerButton->setMinimumWidth(120);
     m_eventsList->setMinimumWidth(220);
     m_eventsList->setMaximumWidth(260);
     m_removeEventButton->setFixedWidth(80);
@@ -70,7 +75,23 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     controls->addWidget(m_speedTextLabel);
     controls->addWidget(m_speedSlider);
     controls->addWidget(m_speedValueLabel);
+    controls->addWidget(m_trackerTextLabel);
+    controls->addWidget(m_trackerPickerButton);
     controls->addStretch();
+
+    auto* trackerMenu = new QMenu(m_trackerPickerButton);
+    const QStringList availableTrackers{
+        "CSRT", "KCF", "MIL", "GOTURN", "DaSiamRPN", "Nano", "Vit"
+    };
+    for (const QString& trackerName : availableTrackers) {
+        QAction* action = trackerMenu->addAction(trackerName);
+        action->setCheckable(true);
+        action->setChecked(trackerName == "CSRT");
+        connect(action, &QAction::toggled, this, &MainWindow::onTrackerActionToggled);
+        m_trackerActions.push_back(action);
+    }
+    m_trackerPickerButton->setMenu(trackerMenu);
+    syncTrackerButtonText();
 
     layout->addLayout(controls, 0);
 
@@ -262,6 +283,12 @@ void MainWindow::startSource(const QString& source, bool useGstreamer) {
     m_isVideoMode = !useGstreamer;
     m_isPaused = false;
     setVideoControlsEnabled(m_isVideoMode);
+    if (m_trackerTextLabel) {
+        m_trackerTextLabel->setEnabled(true);
+    }
+    if (m_trackerPickerButton) {
+        m_trackerPickerButton->setEnabled(true);
+    }
     if (m_resolutionCombo) {
         m_resolutionCombo->setEnabled(useGstreamer);
     }
@@ -278,6 +305,7 @@ void MainWindow::startSource(const QString& source, bool useGstreamer) {
     } else {
         m_camera->setVideoFile(source);
     }
+    applyTrackerSelectionToWorker();
 
     m_camera->moveToThread(m_thread);
 
@@ -402,6 +430,65 @@ void MainWindow::updateSeekTimeLabel(int currentFrame) {
     const int totalFrameForTime = std::max(0, m_totalVideoFrames);
     m_seekTimeLabel->setText(QString("%1 / %2")
         .arg(frameToTimeText(safeCurrentFrame), frameToTimeText(totalFrameForTime)));
+}
+
+QStringList MainWindow::selectedTrackerTypes() const {
+    QStringList selected;
+    for (QAction* action : m_trackerActions) {
+        if (action && action->isChecked()) {
+            selected.push_back(action->text());
+        }
+    }
+
+    if (selected.isEmpty()) {
+        selected.push_back("CSRT");
+    }
+    return selected;
+}
+
+void MainWindow::syncTrackerButtonText() {
+    if (!m_trackerPickerButton) {
+        return;
+    }
+
+    const QStringList selected = selectedTrackerTypes();
+    if (selected.size() == 1) {
+        m_trackerPickerButton->setText(selected.first());
+    } else {
+        m_trackerPickerButton->setText(QString("%1 selected").arg(selected.size()));
+    }
+}
+
+void MainWindow::applyTrackerSelectionToWorker() {
+    if (!m_camera) {
+        return;
+    }
+
+    m_camera->setTrackerTypes(selectedTrackerTypes());
+}
+
+void MainWindow::onTrackerActionToggled(bool checked) {
+    Q_UNUSED(checked);
+
+    bool hasCheckedAction = false;
+    for (QAction* action : m_trackerActions) {
+        if (action && action->isChecked()) {
+            hasCheckedAction = true;
+            break;
+        }
+    }
+
+    if (!hasCheckedAction && !m_trackerActions.isEmpty()) {
+        QAction* firstAction = m_trackerActions.first();
+        if (firstAction) {
+            firstAction->blockSignals(true);
+            firstAction->setChecked(true);
+            firstAction->blockSignals(false);
+        }
+    }
+
+    syncTrackerButtonText();
+    applyTrackerSelectionToWorker();
 }
 
 void MainWindow::applyTrackingEventForFrame(int frameIndex) {

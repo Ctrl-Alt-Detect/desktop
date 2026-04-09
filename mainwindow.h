@@ -7,6 +7,9 @@
 #include <QMap>
 #include <QRect>
 #include <QString>
+#include <QStringList>
+#include <QList>
+#include <QAction>
 #include <QListWidget>
 #include "cameraworker.h"
 #include "videolabel.h"
@@ -34,6 +37,7 @@ private slots:
     void onRemoveEventClicked();
     void onClearEventsClicked();
     void onEventActivated(QListWidgetItem* item);
+    void onTrackerActionToggled(bool checked);
 
 protected:
     void closeEvent(QCloseEvent* event) override;
@@ -52,6 +56,9 @@ private:
     int currentVideoFrame() const;
     void applyTrackingEventForFrame(int frameIndex);
     void updateSeekTimeLabel(int currentFrame);
+    QStringList selectedTrackerTypes() const;
+    void syncTrackerButtonText();
+    void applyTrackerSelectionToWorker();
     void refreshTrackingEventsUi();
     QString trackingEventText(int frameIndex, const TrackingEvent& event) const;
     QString frameToTimeText(int frameIndex) const;
@@ -72,12 +79,15 @@ private:
     QLabel* m_seekTimeLabel{nullptr};
     QLabel* m_speedTextLabel{nullptr};
     QLabel* m_speedValueLabel{nullptr};
+    QLabel* m_trackerTextLabel{nullptr};
+    QPushButton* m_trackerPickerButton{nullptr};
     QLabel* m_eventsTextLabel{nullptr};
     QSlider* m_seekSlider{nullptr};
     QSlider* m_speedSlider{nullptr};
     QListWidget* m_eventsList{nullptr};
     QPushButton* m_removeEventButton{nullptr};
     QPushButton* m_clearEventsButton{nullptr};
+    QList<QAction*> m_trackerActions;
     QMap<int, TrackingEvent> m_trackingTimeline;
     int m_lastAppliedTimelineFrame{-1};
     int m_totalVideoFrames{0};

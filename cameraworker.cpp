@@ -3,6 +3,50 @@
 #include <QThread>
 #include <algorithm>
 
+cv::Ptr<cv::Tracker> CameraWorker::createTrackerByName(const QString& trackerType) const {
+    const QString name = trackerType.trimmed();
+    if (name.compare("CSRT", Qt::CaseInsensitive) == 0) {
+        return cv::TrackerCSRT::create();
+    }
+    if (name.compare("KCF", Qt::CaseInsensitive) == 0) {
+        return cv::TrackerKCF::create();
+    }
+    if (name.compare("MIL", Qt::CaseInsensitive) == 0) {
+        return cv::TrackerMIL::create();
+    }
+    if (name.compare("GOTURN", Qt::CaseInsensitive) == 0) {
+        return cv::TrackerGOTURN::create();
+    }
+    if (name.compare("DaSiamRPN", Qt::CaseInsensitive) == 0) {
+        return cv::TrackerDaSiamRPN::create();
+    }
+    if (name.compare("Nano", Qt::CaseInsensitive) == 0) {
+        return cv::TrackerNano::create();
+    }
+    if (name.compare("Vit", Qt::CaseInsensitive) == 0) {
+        return cv::TrackerVit::create();
+    }
+    return {};
+}
+
+void CameraWorker::rebuildTrackersLocked() {
+    m_trackers.clear();
+    for (const QString& trackerType : m_trackerTypes) {
+        try {
+            cv::Ptr<cv::Tracker> tracker = createTrackerByName(trackerType);
+            if (tracker) {
+                m_trackers.push_back(tracker);
+            }
+        } catch (const cv::Exception& ex) {
+            qWarning() << "Failed to create tracker" << trackerType << ":" << ex.what();
+        }
+    }
+
+    if (m_trackers.empty()) {
+        m_trackers.push_back(cv::TrackerCSRT::create());
+    }
+}
+
 CameraWorker::CameraWorker(QObject* parent) : QObject(parent) {}
 CameraWorker::~CameraWorker() { stop(); }
 
@@ -46,18 +90,40 @@ void CameraWorker::seekToFrame(int frameIndex) {
     m_seekFrame = std::max(0, frameIndex);
 }
 
+void CameraWorker::setTrackerTypes(const QStringList& trackerTypes) {
+    std::lock_guard<std::mutex> lock(m_trackerMutex);
+
+    QStringList sanitized;
+    for (const QString& trackerType : trackerTypes) {
+        const QString trimmed = trackerType.trimmed();
+        if (!trimmed.isEmpty() && !sanitized.contains(trimmed, Qt::CaseInsensitive)) {
+            sanitized.push_back(trimmed);
+        }
+    }
+
+    if (sanitized.isEmpty()) {
+        sanitized.push_back("CSRT");
+    }
+
+    m_trackerTypes = sanitized;
+    if (m_trackerActive) {
+        m_trackerInitialized = false;
+        rebuildTrackersLocked();
+    }
+}
+
 void CameraWorker::initTracker(int x, int y, int width, int height) {
     std::lock_guard<std::mutex> lock(m_trackerMutex);
     m_trackerBox = cv::Rect2d(x, y, width, height);
     m_trackerActive = true;
     m_trackerInitialized = false;
-    m_tracker = cv::TrackerCSRT::create();
+    rebuildTrackersLocked();
     emit trackerStateChanged(true);
 }
 
 void CameraWorker::resetTracker() {
     std::lock_guard<std::mutex> lock(m_trackerMutex);
-    m_tracker.release();
+    m_trackers.clear();
     m_trackerActive = false;
     m_trackerInitialized = false;
     emit trackerStateChanged(false);
@@ -108,7 +174,7 @@ void CameraWorker::run() {
                 m_cap.set(cv::CAP_PROP_POS_FRAMES, static_cast<double>(seekFrame));
                 std::lock_guard<std::mutex> lock(m_trackerMutex);
                 if (m_trackerActive) {
-                    m_tracker = cv::TrackerCSRT::create();
+                    rebuildTrackersLocked();
                     m_trackerInitialized = false;
                 }
             }
@@ -141,23 +207,76 @@ void CameraWorker::run() {
             continue;
         }
 
-        // CSRT tracker-based tracking
+        // Multi-tracker update: average all successful tracker boxes.
         {
             std::lock_guard<std::mutex> lock(m_trackerMutex);
-            if (m_trackerActive && m_tracker) {
-                // Initialize tracker on first frame after selection
+            if (m_trackerActive && !m_trackers.empty()) {
                 if (!m_trackerInitialized) {
                     cv::Rect trackerRect = static_cast<cv::Rect>(m_trackerBox);
-                    m_tracker->init(frame, trackerRect);
-                    m_trackerInitialized = true;
+                    int initCount = 0;
+                    for (auto& tracker : m_trackers) {
+                        if (!tracker) {
+                            continue;
+                        }
+                        try {
+                            tracker->init(frame, trackerRect);
+                            ++initCount;
+                        } catch (const cv::Exception& ex) {
+                            qWarning() << "Tracker init failed:" << ex.what();
+                        }
+                    }
+
+                    if (initCount == 0) {
+                        try {
+                            qWarning() << "Selected trackers failed to initialize, falling back to CSRT";
+                            m_trackers.clear();
+                            cv::Ptr<cv::Tracker> fallback = cv::TrackerCSRT::create();
+                            fallback->init(frame, trackerRect);
+                            m_trackers.push_back(fallback);
+                            initCount = 1;
+                        } catch (const cv::Exception& ex) {
+                            qWarning() << "Fallback CSRT init failed:" << ex.what();
+                        }
+                    }
+                    m_trackerInitialized = (initCount > 0);
                 } else {
-                    // Update tracker with new frame
-                    cv::Rect boundingBox = static_cast<cv::Rect>(m_trackerBox);
-                    m_tracker->update(frame, boundingBox);
-                    m_trackerBox = boundingBox;
+                    double sumX = 0.0;
+                    double sumY = 0.0;
+                    double sumWidth = 0.0;
+                    double sumHeight = 0.0;
+                    int successCount = 0;
+
+                    for (auto& tracker : m_trackers) {
+                        if (!tracker) {
+                            continue;
+                        }
+
+                        cv::Rect trackerBox = static_cast<cv::Rect>(m_trackerBox);
+                        bool updated = false;
+                        try {
+                            updated = tracker->update(frame, trackerBox);
+                        } catch (const cv::Exception& ex) {
+                            qWarning() << "Tracker update failed:" << ex.what();
+                        }
+
+                        if (updated && trackerBox.width > 0 && trackerBox.height > 0) {
+                            sumX += trackerBox.x;
+                            sumY += trackerBox.y;
+                            sumWidth += trackerBox.width;
+                            sumHeight += trackerBox.height;
+                            ++successCount;
+                        }
+                    }
+
+                    if (successCount > 0) {
+                        m_trackerBox = cv::Rect2d(
+                            sumX / successCount,
+                            sumY / successCount,
+                            sumWidth / successCount,
+                            sumHeight / successCount);
+                    }
                 }
-                
-                // Draw tracking bounding box
+
                 cv::Rect drawRect = static_cast<cv::Rect>(m_trackerBox);
                 drawRect.x = std::max(0, drawRect.x);
                 drawRect.y = std::max(0, drawRect.y);

@@ -3,8 +3,10 @@
 #include <QImage>
 #include <QThread>
 #include <QString>
+#include <QStringList>
 #include <atomic>
 #include <mutex>
+#include <vector>
 #include <opencv2/opencv.hpp>
 #include <opencv2/tracking.hpp>
 
@@ -34,11 +36,15 @@ public slots:
     void setPaused(bool paused);
     void setPlaybackSpeed(double speed);
     void seekToFrame(int frameIndex);
+    void setTrackerTypes(const QStringList& trackerTypes);
 
     void initTracker(int x, int y, int width, int height);
     void resetTracker();
 
 private:
+    cv::Ptr<cv::Tracker> createTrackerByName(const QString& trackerType) const;
+    void rebuildTrackersLocked();
+
     QString m_source;
     bool m_useGstreamer{true};
     bool m_isVideoFile{false};
@@ -49,7 +55,8 @@ private:
     std::atomic<double> m_playbackSpeed{1.0};
 
     std::mutex m_trackerMutex;
-    cv::Ptr<cv::Tracker> m_tracker;
+    QStringList m_trackerTypes{"CSRT"};
+    std::vector<cv::Ptr<cv::Tracker>> m_trackers;
     bool m_trackerActive{false};
     bool m_trackerInitialized{false};
     cv::Rect2d m_trackerBox;
