@@ -1,10 +1,13 @@
 #include "mainwindow.h"
 #include <QVBoxLayout>
+#include <QHBoxLayout>
+#include <QPushButton>
+#include <QFileDialog>
 #include <QDebug>
 #include <QCloseEvent>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
-    setWindowTitle("Qt5 GStreamer Webcam");
+    setWindowTitle("Qt5 OpenCV Viewer");
     resize(640, 480);
 
     auto* central = new QWidget(this);
@@ -17,20 +20,38 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     // m_videoLabel->setStyleSheet("background: black;");
 
     auto* layout = new QVBoxLayout(central);
+    auto* controls = new QHBoxLayout;
+    auto* cameraButton = new QPushButton("Camera", this);
+    auto* openVideoButton = new QPushButton("Open Video", this);
+    m_playPauseButton = new QPushButton("Pause", this);
+    m_seekSlider = new QSlider(Qt::Horizontal, this);
+    m_speedSlider = new QSlider(Qt::Horizontal, this);
+
+    m_seekSlider->setRange(0, 0);
+    m_seekSlider->setMinimumWidth(220);
+    m_speedSlider->setRange(25, 300);
+    m_speedSlider->setValue(100);
+    m_speedSlider->setFixedWidth(140);
+
+    controls->addWidget(cameraButton);
+    controls->addWidget(openVideoButton);
+    controls->addWidget(m_playPauseButton);
+    controls->addWidget(m_seekSlider);
+    controls->addWidget(m_speedSlider);
+    controls->addStretch();
+
+    layout->addLayout(controls);
     layout->addWidget(m_videoLabel);
 
-    m_camera = new CameraWorker;
-    m_thread = new QThread(this); 
+    connect(cameraButton, &QPushButton::clicked, this, &MainWindow::onCameraClicked);
+    connect(openVideoButton, &QPushButton::clicked, this, &MainWindow::onOpenVideoClicked);
+    connect(m_playPauseButton, &QPushButton::clicked, this, &MainWindow::onPlayPauseClicked);
+    connect(m_speedSlider, &QSlider::valueChanged, this, &MainWindow::onSpeedChanged);
+    connect(m_seekSlider, &QSlider::sliderReleased, this, &MainWindow::onSeekReleased);
 
-    m_camera->moveToThread(m_thread);
+    setVideoControlsEnabled(false);
 
-    connect(m_thread, &QThread::started, m_camera, &CameraWorker::run);
-    connect(m_camera, &CameraWorker::frameReady, this, &MainWindow::updateFrame, Qt::QueuedConnection);
-    connect(m_camera, &CameraWorker::finished, m_thread, &QThread::quit);
-    connect(m_camera, &CameraWorker::finished, m_camera, &QObject::deleteLater);
-    connect(m_thread, &QThread::finished, m_thread, &QObject::deleteLater);
-
-    m_thread->start();
+    startSource(m_defaultCameraPipeline, true);
 }
 
 MainWindow::~MainWindow() {
@@ -40,6 +61,95 @@ MainWindow::~MainWindow() {
 void MainWindow::closeEvent(QCloseEvent* event) {
     stopCameraThread();
     QMainWindow::closeEvent(event);
+}
+
+void MainWindow::onCameraClicked() {
+    startSource(m_defaultCameraPipeline, true);
+}
+
+void MainWindow::onOpenVideoClicked() {
+    const QString path = QFileDialog::getOpenFileName(
+        this,
+        "Open Video",
+        QString(),
+        "Video Files (*.mp4 *.avi *.mkv *.mov *.wmv);;All Files (*.*)");
+
+    if (path.isEmpty()) {
+        return;
+    }
+
+    startSource(path, false);
+}
+
+void MainWindow::onPlayPauseClicked() {
+    if (!m_camera || !m_isVideoMode) {
+        return;
+    }
+
+    m_isPaused = !m_isPaused;
+    m_playPauseButton->setText(m_isPaused ? "Play" : "Pause");
+    m_camera->setPaused(m_isPaused);
+}
+
+void MainWindow::onSpeedChanged(int value) {
+    if (!m_camera || !m_isVideoMode) {
+        return;
+    }
+
+    const double speed = static_cast<double>(value) / 100.0;
+    m_camera->setPlaybackSpeed(speed);
+}
+
+void MainWindow::onSeekReleased() {
+    if (!m_camera || !m_isVideoMode) {
+        return;
+    }
+
+    const int frameIndex = m_seekSlider->value();
+    m_camera->seekToFrame(frameIndex);
+}
+
+void MainWindow::onVideoInfo(int totalFrames, double fps) {
+    Q_UNUSED(fps);
+    m_seekSlider->setRange(0, totalFrames > 0 ? totalFrames - 1 : 0);
+}
+
+void MainWindow::onVideoPosition(int frameIndex) {
+    if (!m_seekSlider->isSliderDown()) {
+        m_seekSlider->setValue(frameIndex);
+    }
+}
+
+void MainWindow::startSource(const QString& source, bool useGstreamer) {
+    stopCameraThread();
+
+    m_isVideoMode = !useGstreamer;
+    m_isPaused = false;
+    setVideoControlsEnabled(m_isVideoMode);
+    m_playPauseButton->setText("Pause");
+
+    m_camera = new CameraWorker;
+    m_thread = new QThread(this);
+
+    if (useGstreamer) {
+        m_camera->setCameraPipeline(source);
+    } else {
+        m_camera->setVideoFile(source);
+    }
+
+    m_camera->moveToThread(m_thread);
+
+    connect(m_thread, &QThread::started, m_camera, &CameraWorker::run);
+    connect(m_camera, &CameraWorker::frameReady, this, &MainWindow::updateFrame, Qt::QueuedConnection);
+    connect(m_camera, &CameraWorker::finished, m_thread, &QThread::quit);
+    connect(m_camera, &CameraWorker::videoInfo, this, &MainWindow::onVideoInfo, Qt::QueuedConnection);
+    connect(m_camera, &CameraWorker::positionChanged, this, &MainWindow::onVideoPosition, Qt::QueuedConnection);
+
+    m_thread->start();
+
+    if (m_isVideoMode) {
+        onSpeedChanged(m_speedSlider->value());
+    }
 }
 
 void MainWindow::stopCameraThread() {
@@ -55,10 +165,32 @@ void MainWindow::stopCameraThread() {
             m_thread->terminate();
             m_thread->wait(1000);
         }
+
+        delete m_thread;
+    }
+
+    if (m_camera) {
+        delete m_camera;
     }
 
     m_camera = nullptr;
     m_thread = nullptr;
+}
+
+void MainWindow::setVideoControlsEnabled(bool enabled) {
+    if (m_playPauseButton) {
+        m_playPauseButton->setEnabled(enabled);
+    }
+    if (m_seekSlider) {
+        m_seekSlider->setEnabled(enabled);
+        if (!enabled) {
+            m_seekSlider->setRange(0, 0);
+            m_seekSlider->setValue(0);
+        }
+    }
+    if (m_speedSlider) {
+        m_speedSlider->setEnabled(enabled);
+    }
 }
 
 void MainWindow::updateFrame(const QImage& frame) {
