@@ -8,6 +8,7 @@
 #include <mutex>
 #include <vector>
 #include <opencv2/opencv.hpp>
+#include <opencv2/dnn.hpp>
 #include <opencv2/tracking.hpp>
 
 class CameraWorker : public QObject {
@@ -22,6 +23,9 @@ public:
     void requestStop();
     void setCameraPipeline(const QString& pipeline);
     void setVideoFile(const QString& filePath);
+    void setYoloModel(const QString& configPath, const QString& weightsPath, const QStringList& classNames);
+    void setAiEnabled(bool enabled);
+    void setAiInterval(int frameInterval);
 
 signals:
     void frameReady(const QImage& frame);
@@ -42,8 +46,20 @@ public slots:
     void resetTracker();
 
 private:
+    struct YoloDetection {
+        int classId{-1};
+        float confidence{0.0f};
+        cv::Rect box;
+    };
+
     cv::Ptr<cv::Tracker> createTrackerByName(const QString& trackerType) const;
     void rebuildTrackersLocked();
+    bool loadYoloNetLocked();
+    bool detectYoloObjects(const cv::Mat& frame, std::vector<YoloDetection>& detections);
+    static double rectIntersectionOverUnion(const cv::Rect2d& lhs, const cv::Rect2d& rhs);
+    bool chooseDetectionForSelection(const std::vector<YoloDetection>& detections, const cv::Rect2d& referenceBox, YoloDetection& selectedDetection) const;
+    bool chooseDetectionForCorrection(const std::vector<YoloDetection>& detections, const cv::Rect2d& referenceBox, YoloDetection& selectedDetection) const;
+    void applyTrackerBoxLocked(const cv::Rect2d& box, const cv::Mat& frame);
 
     QString m_source;
     bool m_useGstreamer{true};
@@ -60,4 +76,16 @@ private:
     bool m_trackerActive{false};
     bool m_trackerInitialized{false};
     cv::Rect2d m_trackerBox;
+
+    std::mutex m_yoloMutex;
+    QString m_yoloConfigPath;
+    QString m_yoloWeightsPath;
+    QStringList m_yoloClassNames;
+    cv::dnn::Net m_yoloNet;
+    bool m_yoloNetLoaded{false};
+    bool m_yoloNetDirty{false};
+    bool m_aiEnabled{false};
+    int m_aiIntervalFrames{30};
+    int m_targetClassId{-1};
+    bool m_targetClassPending{false};
 };

@@ -3,6 +3,7 @@
 #include <QHBoxLayout>
 #include <QPushButton>
 #include <QFileDialog>
+#include <QCheckBox>
 #include <QDebug>
 #include <QCloseEvent>
 #include <QSizePolicy>
@@ -46,6 +47,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_speedValueLabel = new QLabel("1.00x", this);
     m_trackerTextLabel = new QLabel("Trackers", this);
     m_trackerPickerButton = new QPushButton(this);
+    m_loadYoloButton = new QPushButton("Load YOLO", this);
+    m_aiEnabledCheckBox = new QCheckBox("AI", this);
+    m_aiIntervalCombo = new QComboBox(this);
+    m_yoloStatusLabel = new QLabel("YOLO: not loaded", this);
     m_eventsTextLabel = new QLabel("Events", this);
     m_seekSlider = new QSlider(Qt::Horizontal, this);
     m_speedSlider = new QSlider(Qt::Horizontal, this);
@@ -65,6 +70,16 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_resolutionCombo->setCurrentIndex(0);
     m_resolutionCombo->setFixedWidth(120);
     m_trackerPickerButton->setMinimumWidth(120);
+    m_loadYoloButton->setFixedWidth(100);
+    m_aiEnabledCheckBox->setChecked(false);
+    m_aiIntervalCombo->addItem("5 frames", 5);
+    m_aiIntervalCombo->addItem("10 frames", 10);
+    m_aiIntervalCombo->addItem("20 frames", 20);
+    m_aiIntervalCombo->addItem("30 frames", 30);
+    m_aiIntervalCombo->addItem("60 frames", 60);
+    m_aiIntervalCombo->setCurrentIndex(3);
+    m_aiIntervalCombo->setFixedWidth(110);
+    m_yoloStatusLabel->setMinimumWidth(180);
     m_eventsList->setMinimumWidth(220);
     m_eventsList->setMaximumWidth(260);
     m_removeEventButton->setFixedWidth(80);
@@ -84,6 +99,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     controls->addWidget(m_speedValueLabel);
     controls->addWidget(m_trackerTextLabel);
     controls->addWidget(m_trackerPickerButton);
+    controls->addWidget(m_loadYoloButton);
+    controls->addWidget(m_aiEnabledCheckBox);
+    controls->addWidget(m_aiIntervalCombo);
+    controls->addWidget(m_yoloStatusLabel);
     controls->addStretch();
 
     auto* trackerMenu = new QMenu(m_trackerPickerButton);
@@ -130,8 +149,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(m_removeEventButton, &QPushButton::clicked, this, &MainWindow::onRemoveEventClicked);
     connect(m_clearEventsButton, &QPushButton::clicked, this, &MainWindow::onClearEventsClicked);
     connect(m_eventsList, &QListWidget::itemDoubleClicked, this, &MainWindow::onEventActivated);
+    connect(m_loadYoloButton, &QPushButton::clicked, this, &MainWindow::onLoadYoloModelClicked);
+    connect(m_aiEnabledCheckBox, &QCheckBox::toggled, this, &MainWindow::onAiEnabledChanged);
+    connect(m_aiIntervalCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onAiIntervalChanged);
 
     setVideoControlsEnabled(false);
+    refreshYoloStatusLabel();
+    applyAiSettingsToWorker();
 
     startSource(buildCameraPipeline(), true);
 }
@@ -383,6 +407,51 @@ void MainWindow::onExportVideoClicked() {
     QMessageBox::information(this, "Export Video", "Export complete:\n" + outputPath);
 }
 
+void MainWindow::onLoadYoloModelClicked() {
+    const QString configPath = QFileDialog::getOpenFileName(
+        this,
+        "Open YOLO Config",
+        QString(),
+        "YOLO Config (*.cfg);;All Files (*.*)");
+    if (configPath.isEmpty()) {
+        return;
+    }
+
+    const QString weightsPath = QFileDialog::getOpenFileName(
+        this,
+        "Open YOLO Weights",
+        QFileInfo(configPath).absolutePath(),
+        "YOLO Weights (*.weights);;All Files (*.*)");
+    if (weightsPath.isEmpty()) {
+        return;
+    }
+
+    const QString namesPath = QFileDialog::getOpenFileName(
+        this,
+        "Open YOLO Class Names (optional)",
+        QFileInfo(configPath).absolutePath(),
+        "Class Names (*.names *.txt);;All Files (*.*)");
+
+    m_yoloConfigPath = configPath;
+    m_yoloWeightsPath = weightsPath;
+    m_yoloNamesPath = namesPath;
+    m_yoloClassNames = namesPath.isEmpty() ? QStringList() : loadClassNamesFromFile(namesPath);
+
+    applyAiSettingsToWorker();
+    refreshYoloStatusLabel();
+}
+
+void MainWindow::onAiEnabledChanged(bool checked) {
+    Q_UNUSED(checked);
+    applyAiSettingsToWorker();
+    refreshYoloStatusLabel();
+}
+
+void MainWindow::onAiIntervalChanged(int index) {
+    Q_UNUSED(index);
+    applyAiSettingsToWorker();
+}
+
 void MainWindow::onPlayPauseClicked() {
     if (!m_camera || !m_isVideoMode) {
         return;
@@ -528,6 +597,7 @@ void MainWindow::startSource(const QString& source, bool useGstreamer) {
         m_camera->setVideoFile(source);
     }
     applyTrackerSelectionToWorker();
+    applyAiSettingsToWorker();
 
     m_camera->moveToThread(m_thread);
 
@@ -545,6 +615,51 @@ void MainWindow::startSource(const QString& source, bool useGstreamer) {
     if (m_isVideoMode) {
         onSpeedChanged(m_speedSlider->value());
     }
+}
+
+void MainWindow::applyAiSettingsToWorker() {
+    if (!m_camera) {
+        return;
+    }
+
+    const int interval = m_aiIntervalCombo ? m_aiIntervalCombo->currentData().toInt() : 30;
+    m_camera->setYoloModel(m_yoloConfigPath, m_yoloWeightsPath, m_yoloClassNames);
+    m_camera->setAiInterval(std::max(1, interval));
+    m_camera->setAiEnabled(m_aiEnabledCheckBox && m_aiEnabledCheckBox->isChecked());
+}
+
+void MainWindow::refreshYoloStatusLabel() {
+    if (!m_yoloStatusLabel) {
+        return;
+    }
+
+    if (m_yoloConfigPath.isEmpty() || m_yoloWeightsPath.isEmpty()) {
+        m_yoloStatusLabel->setText("YOLO: not loaded");
+        return;
+    }
+
+    const QString modelName = QFileInfo(m_yoloWeightsPath).completeBaseName().isEmpty()
+        ? QFileInfo(m_yoloConfigPath).completeBaseName()
+        : QFileInfo(m_yoloWeightsPath).completeBaseName();
+    const QString aiState = (m_aiEnabledCheckBox && m_aiEnabledCheckBox->isChecked()) ? "on" : "off";
+    m_yoloStatusLabel->setText(QString("YOLO: %1 (%2)").arg(modelName, aiState));
+}
+
+QStringList MainWindow::loadClassNamesFromFile(const QString& filePath) const {
+    QStringList classNames;
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return classNames;
+    }
+
+    while (!file.atEnd()) {
+        const QString line = QString::fromUtf8(file.readLine()).trimmed();
+        if (!line.isEmpty()) {
+            classNames.push_back(line);
+        }
+    }
+
+    return classNames;
 }
 
 QString MainWindow::buildCameraPipeline() const {
