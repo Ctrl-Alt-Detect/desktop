@@ -18,13 +18,45 @@ void VideoLabel::setFrameSize(int width, int height) {
 void VideoLabel::paintEvent(QPaintEvent* event) {
     QLabel::paintEvent(event);
 
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    const QRect contentRect = contentsRect();
+    const float scaleX = (m_frameWidth > 0) ? static_cast<float>(contentRect.width()) / static_cast<float>(m_frameWidth) : 1.0f;
+    const float scaleY = (m_frameHeight > 0) ? static_cast<float>(contentRect.height()) / static_cast<float>(m_frameHeight) : 1.0f;
+    const float scale = (m_frameWidth > 0 && m_frameHeight > 0) ? std::min(scaleX, scaleY) : 1.0f;
+    const int drawWidth = (m_frameWidth > 0) ? static_cast<int>(m_frameWidth * scale) : contentRect.width();
+    const int drawHeight = (m_frameHeight > 0) ? static_cast<int>(m_frameHeight * scale) : contentRect.height();
+    const int drawLeft = contentRect.left() + (contentRect.width() - drawWidth) / 2;
+    const int drawTop = contentRect.top() + (contentRect.height() - drawHeight) / 2;
+    const QRect drawRect(drawLeft, drawTop, std::max(1, drawWidth), std::max(1, drawHeight));
+
+    QPen hudPen(QColor(232, 243, 255, 180), 1);
+    painter.setPen(hudPen);
+
+    const int cornerLen = std::max(16, std::min(drawRect.width(), drawRect.height()) / 22);
+    painter.drawLine(drawRect.left(), drawRect.top(), drawRect.left() + cornerLen, drawRect.top());
+    painter.drawLine(drawRect.left(), drawRect.top(), drawRect.left(), drawRect.top() + cornerLen);
+    painter.drawLine(drawRect.right() - cornerLen, drawRect.top(), drawRect.right(), drawRect.top());
+    painter.drawLine(drawRect.right(), drawRect.top(), drawRect.right(), drawRect.top() + cornerLen);
+    painter.drawLine(drawRect.left(), drawRect.bottom() - cornerLen, drawRect.left(), drawRect.bottom());
+    painter.drawLine(drawRect.left(), drawRect.bottom(), drawRect.left() + cornerLen, drawRect.bottom());
+    painter.drawLine(drawRect.right() - cornerLen, drawRect.bottom(), drawRect.right(), drawRect.bottom());
+    painter.drawLine(drawRect.right(), drawRect.bottom() - cornerLen, drawRect.right(), drawRect.bottom());
+
+    const QPoint center = drawRect.center();
+    const int centerGap = std::max(12, cornerLen / 2);
+    const int centerLen = std::max(18, cornerLen);
+    painter.drawLine(center.x() - centerLen, center.y(), center.x() - centerGap, center.y());
+    painter.drawLine(center.x() + centerGap, center.y(), center.x() + centerLen, center.y());
+    painter.drawLine(center.x(), center.y() - centerLen, center.x(), center.y() - centerGap);
+    painter.drawLine(center.x(), center.y() + centerGap, center.x(), center.y() + centerLen);
+
     if (!m_selecting) {
         return;
     }
 
-    QPainter painter(this);
-    painter.setRenderHint(QPainter::Antialiasing, true);
-    painter.setPen(QPen(QColor(0, 255, 0), 2, Qt::DashLine));
+    painter.setPen(QPen(QColor(146, 255, 206), 2, Qt::DashLine));
     painter.setBrush(QColor(0, 255, 0, 40));
     painter.drawRect(QRect(m_startPoint, m_currentPoint).normalized());
 }
