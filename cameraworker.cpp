@@ -1,21 +1,60 @@
 #include "cameraworker.h"
 #include <QDebug>
+#include <QFileInfo>
+#include <QRegularExpression>
 #include <QThread>
 #include <algorithm>
+
+namespace {
+cv::Size inferYoloInputSizeFromModelPath(const QString& modelPath) {
+    // Accept names like "yolo11n_480.onnx" or "model_640x640.onnx".
+    const QRegularExpression pairPattern("(\\d{3,4})[xX](\\d{3,4})");
+    QRegularExpressionMatch pairMatch = pairPattern.match(modelPath);
+    if (pairMatch.hasMatch()) {
+        const int width = pairMatch.captured(1).toInt();
+        const int height = pairMatch.captured(2).toInt();
+        if (width > 0 && height > 0) {
+            return cv::Size(width, height);
+        }
+    }
+
+    const QRegularExpression squarePattern("_(\\d{3,4})(?=\\.[^.]+$)");
+    QRegularExpressionMatch squareMatch = squarePattern.match(modelPath);
+    if (squareMatch.hasMatch()) {
+        const int size = squareMatch.captured(1).toInt();
+        if (size > 0) {
+            return cv::Size(size, size);
+        }
+    }
+
+    return cv::Size(640, 640);
+}
+
+bool isLikelyNormalizedBox(float cx, float cy, float width, float height) {
+    return cx >= 0.0f && cy >= 0.0f && width > 0.0f && height > 0.0f && cx <= 1.5f && cy <= 1.5f && width <= 1.5f && height <= 1.5f;
+}
+}
 
 bool CameraWorker::loadYoloNetLocked() {
     if (m_yoloNetLoaded && !m_yoloNetDirty) {
         return true;
     }
 
-    if (m_yoloConfigPath.isEmpty() || m_yoloWeightsPath.isEmpty()) {
+    if (m_yoloModelPath.isEmpty()) {
+        m_yoloNetLoaded = false;
+        m_yoloNetDirty = false;
+        return false;
+    }
+
+    if (!QFileInfo::exists(m_yoloModelPath)) {
+        qWarning() << "YOLO model file does not exist:" << m_yoloModelPath;
         m_yoloNetLoaded = false;
         m_yoloNetDirty = false;
         return false;
     }
 
     try {
-        m_yoloNet = cv::dnn::readNetFromDarknet(m_yoloConfigPath.toStdString(), m_yoloWeightsPath.toStdString());
+        m_yoloNet = cv::dnn::readNetFromONNX(m_yoloModelPath.toStdString());
         m_yoloNet.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
         m_yoloNet.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
         m_yoloNetLoaded = true;
@@ -34,68 +73,165 @@ bool CameraWorker::detectYoloObjects(const cv::Mat& frame, std::vector<YoloDetec
     detections.clear();
 
     std::lock_guard<std::mutex> lock(m_yoloMutex);
-    if (!m_aiEnabled || m_yoloConfigPath.isEmpty() || m_yoloWeightsPath.isEmpty()) {
+    if (!m_aiEnabled || m_yoloModelPath.isEmpty()) {
         return false;
     }
 
-    if (!loadYoloNetLocked()) {
-        return false;
-    }
+    try {
+        if (!loadYoloNetLocked()) {
+            return false;
+        }
 
-    cv::Mat blob = cv::dnn::blobFromImage(frame, 1.0 / 255.0, cv::Size(416, 416), cv::Scalar(), true, false);
-    m_yoloNet.setInput(blob);
+        const cv::Size modelInputSize = inferYoloInputSizeFromModelPath(m_yoloModelPath);
+        cv::Mat blob = cv::dnn::blobFromImage(frame, 1.0 / 255.0, modelInputSize, cv::Scalar(), true, false);
+        m_yoloNet.setInput(blob);
 
-    std::vector<cv::Mat> outputs;
-    m_yoloNet.forward(outputs, m_yoloNet.getUnconnectedOutLayersNames());
+        std::vector<cv::Mat> outputs;
+        m_yoloNet.forward(outputs, m_yoloNet.getUnconnectedOutLayersNames());
 
-    std::vector<cv::Rect> boxes;
-    std::vector<float> confidences;
-    std::vector<int> classIds;
+        if (!m_yoloOutputInfoLogged) {
+            QStringList shapes;
+            for (const cv::Mat& output : outputs) {
+                QStringList dims;
+                for (int dimIndex = 0; dimIndex < output.dims; ++dimIndex) {
+                    dims << QString::number(output.size[dimIndex]);
+                }
+                shapes << QString("[%1]").arg(dims.join('x'));
+            }
+            qInfo() << "YOLO outputs:" << shapes.join(", ") << "input" << modelInputSize.width << "x" << modelInputSize.height;
+            m_yoloOutputInfoLogged = true;
+        }
 
-    for (const cv::Mat& output : outputs) {
-        for (int rowIndex = 0; rowIndex < output.rows; ++rowIndex) {
-            const float* row = output.ptr<float>(rowIndex);
-            if (output.cols <= 5) {
+        std::vector<cv::Rect> boxes;
+        std::vector<float> confidences;
+        std::vector<int> classIds;
+
+        auto appendDetectionsFrom2D = [&](const cv::Mat& predictions) {
+            if (predictions.empty() || predictions.cols < 6) {
+                return;
+            }
+
+            for (int rowIndex = 0; rowIndex < predictions.rows; ++rowIndex) {
+                const float* row = predictions.ptr<float>(rowIndex);
+                const int attributes = predictions.cols;
+
+                int classStartIndex = 5;
+                float objectness = row[4];
+
+                if (!m_yoloClassNames.isEmpty()) {
+                    if (attributes == m_yoloClassNames.size() + 4) {
+                        classStartIndex = 4;
+                        objectness = 1.0f;
+                    } else if (attributes == m_yoloClassNames.size() + 5) {
+                        classStartIndex = 5;
+                    }
+                } else if (attributes >= 8 && attributes != 85) {
+                    // Most YOLOv8/11 exports are [x,y,w,h,cls...] without objectness.
+                    classStartIndex = 4;
+                    objectness = 1.0f;
+                }
+
+                if (attributes <= classStartIndex) {
+                    continue;
+                }
+
+                float bestClassScore = 0.0f;
+                int bestClassId = -1;
+                for (int classIndex = classStartIndex; classIndex < attributes; ++classIndex) {
+                    if (row[classIndex] > bestClassScore) {
+                        bestClassScore = row[classIndex];
+                        bestClassId = classIndex - classStartIndex;
+                    }
+                }
+
+                const float confidence = objectness * bestClassScore;
+                if (confidence < 0.25f || bestClassId < 0) {
+                    continue;
+                }
+
+                float centerX = row[0];
+                float centerY = row[1];
+                float width = row[2];
+                float height = row[3];
+
+                if (isLikelyNormalizedBox(centerX, centerY, width, height)) {
+                    centerX *= static_cast<float>(frame.cols);
+                    centerY *= static_cast<float>(frame.rows);
+                    width *= static_cast<float>(frame.cols);
+                    height *= static_cast<float>(frame.rows);
+                } else {
+                    const float xScale = static_cast<float>(frame.cols) / static_cast<float>(std::max(1, modelInputSize.width));
+                    const float yScale = static_cast<float>(frame.rows) / static_cast<float>(std::max(1, modelInputSize.height));
+                    centerX *= xScale;
+                    centerY *= yScale;
+                    width *= xScale;
+                    height *= yScale;
+                }
+
+                int left = static_cast<int>(centerX - width * 0.5f);
+                int top = static_cast<int>(centerY - height * 0.5f);
+                int boxWidth = static_cast<int>(width);
+                int boxHeight = static_cast<int>(height);
+
+                left = std::max(0, std::min(left, std::max(0, frame.cols - 1)));
+                top = std::max(0, std::min(top, std::max(0, frame.rows - 1)));
+                boxWidth = std::max(1, std::min(boxWidth, std::max(1, frame.cols - left)));
+                boxHeight = std::max(1, std::min(boxHeight, std::max(1, frame.rows - top)));
+
+                boxes.emplace_back(left, top, boxWidth, boxHeight);
+                confidences.push_back(confidence);
+                classIds.push_back(bestClassId);
+            }
+        };
+
+        for (const cv::Mat& output : outputs) {
+            if (output.empty()) {
                 continue;
             }
 
-            float bestClassConfidence = 0.0f;
-            int bestClassId = -1;
-            for (int classIndex = 5; classIndex < output.cols; ++classIndex) {
-                if (row[classIndex] > bestClassConfidence) {
-                    bestClassConfidence = row[classIndex];
-                    bestClassId = classIndex - 5;
+            if (output.dims == 2) {
+                appendDetectionsFrom2D(output);
+                continue;
+            }
+
+            if (output.dims == 3 && output.size[0] == 1) {
+                const int dim1 = output.size[1];
+                const int dim2 = output.size[2];
+
+                if (dim1 > 0 && dim2 > 0) {
+                    cv::Mat view;
+                    if (dim1 >= dim2) {
+                        // [1, num_predictions, attributes]
+                        view = cv::Mat(dim1, dim2, CV_32F, const_cast<float*>(output.ptr<float>(0)));
+                    } else {
+                        // [1, attributes, num_predictions] -> transpose to [num_predictions, attributes]
+                        cv::Mat attrsByPred = cv::Mat(dim1, dim2, CV_32F, const_cast<float*>(output.ptr<float>(0)));
+                        view = attrsByPred.t();
+                    }
+                    appendDetectionsFrom2D(view);
                 }
             }
-
-            const float objectConfidence = row[4];
-            const float confidence = objectConfidence * bestClassConfidence;
-            if (confidence < 0.4f || bestClassId < 0) {
-                continue;
-            }
-
-            const int centerX = static_cast<int>(row[0] * frame.cols);
-            const int centerY = static_cast<int>(row[1] * frame.rows);
-            const int width = static_cast<int>(row[2] * frame.cols);
-            const int height = static_cast<int>(row[3] * frame.rows);
-            const int left = centerX - width / 2;
-            const int top = centerY - height / 2;
-
-            boxes.push_back(cv::Rect(left, top, width, height));
-            confidences.push_back(confidence);
-            classIds.push_back(bestClassId);
         }
-    }
 
-    std::vector<int> indices;
-    cv::dnn::NMSBoxes(boxes, confidences, 0.4f, 0.45f, indices);
+        if (boxes.empty()) {
+            return false;
+        }
 
-    for (int index : indices) {
-        YoloDetection detection;
-        detection.classId = classIds[index];
-        detection.confidence = confidences[index];
-        detection.box = boxes[index];
-        detections.push_back(detection);
+        std::vector<int> indices;
+        cv::dnn::NMSBoxes(boxes, confidences, 0.25f, 0.45f, indices);
+
+        for (int index : indices) {
+            YoloDetection detection;
+            detection.classId = classIds[index];
+            detection.confidence = confidences[index];
+            detection.box = boxes[index];
+            detections.push_back(detection);
+        }
+    } catch (const cv::Exception& ex) {
+        qWarning() << "YOLO inference failed; disabling AI for this session:" << ex.what();
+        m_aiEnabled = false;
+        m_targetClassPending = false;
+        return false;
     }
 
     return !detections.empty();
@@ -273,15 +409,15 @@ void CameraWorker::setVideoFile(const QString& filePath) {
     m_isVideoFile = true;
 }
 
-void CameraWorker::setYoloModel(const QString& configPath, const QString& weightsPath, const QStringList& classNames) {
+void CameraWorker::setYoloModel(const QString& modelPath, const QStringList& classNames) {
     std::lock_guard<std::mutex> lock(m_yoloMutex);
-    const bool modelChanged = (m_yoloConfigPath != configPath) || (m_yoloWeightsPath != weightsPath) || (m_yoloClassNames != classNames);
-    m_yoloConfigPath = configPath;
-    m_yoloWeightsPath = weightsPath;
+    const bool modelChanged = (m_yoloModelPath != modelPath) || (m_yoloClassNames != classNames);
+    m_yoloModelPath = modelPath;
     m_yoloClassNames = classNames;
     if (modelChanged) {
         m_yoloNetDirty = true;
         m_yoloNetLoaded = false;
+        m_yoloOutputInfoLogged = false;
         m_targetClassId = -1;
         m_targetClassPending = false;
     }
@@ -527,7 +663,7 @@ void CameraWorker::run() {
             aiIntervalFrames = m_aiIntervalFrames;
             targetClassId = m_targetClassId;
             targetClassPending = m_targetClassPending;
-            modelConfigured = !m_yoloConfigPath.isEmpty() && !m_yoloWeightsPath.isEmpty();
+            modelConfigured = !m_yoloModelPath.isEmpty();
             runAiPass = m_aiEnabled && modelConfigured && (targetClassPending || (aiIntervalFrames > 0 && frameIndex % aiIntervalFrames == 0));
         }
 

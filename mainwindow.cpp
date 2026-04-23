@@ -47,10 +47,10 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_speedValueLabel = new QLabel("1.00x", this);
     m_trackerTextLabel = new QLabel("Trackers", this);
     m_trackerPickerButton = new QPushButton(this);
-    m_loadYoloButton = new QPushButton("Load YOLO", this);
+    m_loadYoloButton = new QPushButton("Load ONNX", this);
     m_aiEnabledCheckBox = new QCheckBox("AI", this);
     m_aiIntervalCombo = new QComboBox(this);
-    m_yoloStatusLabel = new QLabel("YOLO: not loaded", this);
+    m_yoloStatusLabel = new QLabel("ONNX: not loaded", this);
     m_eventsTextLabel = new QLabel("Events", this);
     m_seekSlider = new QSlider(Qt::Horizontal, this);
     m_speedSlider = new QSlider(Qt::Horizontal, this);
@@ -410,31 +410,20 @@ void MainWindow::onExportVideoClicked() {
 void MainWindow::onLoadYoloModelClicked() {
     const QString configPath = QFileDialog::getOpenFileName(
         this,
-        "Open YOLO Config",
+        "Open ONNX Model",
         QString(),
-        "YOLO Config (*.cfg);;All Files (*.*)");
+        "ONNX Model (*.onnx);;All Files (*.*)");
     if (configPath.isEmpty()) {
-        return;
-    }
-
-    const QString weightsPath = QFileDialog::getOpenFileName(
-        this,
-        "Open YOLO Weights",
-        QFileInfo(configPath).absolutePath(),
-        "YOLO Weights (*.weights);;All Files (*.*)");
-    if (weightsPath.isEmpty()) {
         return;
     }
 
     const QString namesPath = QFileDialog::getOpenFileName(
         this,
-        "Open YOLO Class Names (optional)",
+        "Open Class Names (optional)",
         QFileInfo(configPath).absolutePath(),
         "Class Names (*.names *.txt);;All Files (*.*)");
 
-    m_yoloConfigPath = configPath;
-    m_yoloWeightsPath = weightsPath;
-    m_yoloNamesPath = namesPath;
+    m_yoloModelPath = configPath;
     m_yoloClassNames = namesPath.isEmpty() ? QStringList() : loadClassNamesFromFile(namesPath);
 
     applyAiSettingsToWorker();
@@ -623,7 +612,7 @@ void MainWindow::applyAiSettingsToWorker() {
     }
 
     const int interval = m_aiIntervalCombo ? m_aiIntervalCombo->currentData().toInt() : 30;
-    m_camera->setYoloModel(m_yoloConfigPath, m_yoloWeightsPath, m_yoloClassNames);
+    m_camera->setYoloModel(m_yoloModelPath, m_yoloClassNames);
     m_camera->setAiInterval(std::max(1, interval));
     m_camera->setAiEnabled(m_aiEnabledCheckBox && m_aiEnabledCheckBox->isChecked());
 }
@@ -633,16 +622,14 @@ void MainWindow::refreshYoloStatusLabel() {
         return;
     }
 
-    if (m_yoloConfigPath.isEmpty() || m_yoloWeightsPath.isEmpty()) {
-        m_yoloStatusLabel->setText("YOLO: not loaded");
+    if (m_yoloModelPath.isEmpty()) {
+        m_yoloStatusLabel->setText("ONNX: not loaded");
         return;
     }
 
-    const QString modelName = QFileInfo(m_yoloWeightsPath).completeBaseName().isEmpty()
-        ? QFileInfo(m_yoloConfigPath).completeBaseName()
-        : QFileInfo(m_yoloWeightsPath).completeBaseName();
+    const QString modelName = QFileInfo(m_yoloModelPath).completeBaseName();
     const QString aiState = (m_aiEnabledCheckBox && m_aiEnabledCheckBox->isChecked()) ? "on" : "off";
-    m_yoloStatusLabel->setText(QString("YOLO: %1 (%2)").arg(modelName, aiState));
+    m_yoloStatusLabel->setText(QString("ONNX: %1 (%2)").arg(modelName, aiState));
 }
 
 QStringList MainWindow::loadClassNamesFromFile(const QString& filePath) const {

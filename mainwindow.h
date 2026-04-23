@@ -101,9 +101,7 @@ private:
     QPushButton* m_removeEventButton{nullptr};
     QPushButton* m_clearEventsButton{nullptr};
     QList<QAction*> m_trackerActions;
-    QString m_yoloConfigPath;
-    QString m_yoloWeightsPath;
-    QString m_yoloNamesPath;
+    QString m_yoloModelPath;
     QStringList m_yoloClassNames;
     QMap<int, TrackingEvent> m_trackingTimeline;
     int m_lastAppliedTimelineFrame{-1};

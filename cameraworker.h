@@ -23,7 +23,7 @@ public:
     void requestStop();
     void setCameraPipeline(const QString& pipeline);
     void setVideoFile(const QString& filePath);
-    void setYoloModel(const QString& configPath, const QString& weightsPath, const QStringList& classNames);
+    void setYoloModel(const QString& modelPath, const QStringList& classNames);
     void setAiEnabled(bool enabled);
     void setAiInterval(int frameInterval);
 
@@ -78,12 +78,12 @@ private:
     cv::Rect2d m_trackerBox;
 
     std::mutex m_yoloMutex;
-    QString m_yoloConfigPath;
-    QString m_yoloWeightsPath;
+    QString m_yoloModelPath;
     QStringList m_yoloClassNames;
     cv::dnn::Net m_yoloNet;
     bool m_yoloNetLoaded{false};
     bool m_yoloNetDirty{false};
+    bool m_yoloOutputInfoLogged{false};
     bool m_aiEnabled{false};
     int m_aiIntervalFrames{30};
     int m_targetClassId{-1};
