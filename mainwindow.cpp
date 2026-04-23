@@ -17,25 +17,41 @@
 #include <QProgressDialog>
 #include <QCoreApplication>
 #include <QFile>
+#include <QFrame>
+#include <QFont>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
-    setWindowTitle("Qt5 OpenCV Viewer");
-    resize(640, 480);
+    setWindowTitle("Vision Deck");
+    resize(1240, 760);
+    setMinimumSize(1024, 640);
+
+    QFont uiFont("Segoe UI", 11);
+    setFont(uiFont);
 
     auto* central = new QWidget(this);
+    central->setObjectName("appRoot");
     setCentralWidget(central);
 
     m_videoLabel = new VideoLabel(this);
+    m_videoLabel->setObjectName("videoSurface");
     m_videoLabel->setAlignment(Qt::AlignCenter);
     m_videoLabel->setMinimumSize(320, 240);
     m_videoLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
-    m_videoLabel->setScaledContents(true);
-    // m_videoLabel->setStyleSheet("background: black;");
+    m_videoLabel->setScaledContents(false);
 
     auto* layout = new QVBoxLayout(central);
-    layout->setContentsMargins(8, 8, 8, 8);
-    layout->setSpacing(6);
-    auto* controls = new QHBoxLayout;
+    layout->setContentsMargins(16, 16, 16, 16);
+    layout->setSpacing(12);
+
+    auto* controlsCard = new QFrame(this);
+    controlsCard->setObjectName("controlsCard");
+    auto* controls = new QVBoxLayout;
+    controls->setContentsMargins(12, 10, 12, 10);
+    controls->setSpacing(8);
+    auto* controlsTop = new QHBoxLayout;
+    controlsTop->setSpacing(8);
+    auto* controlsBottom = new QHBoxLayout;
+    controlsBottom->setSpacing(8);
     auto* cameraButton = new QPushButton("Camera", this);
     auto* openVideoButton = new QPushButton("Open Video", this);
     m_exportVideoButton = new QPushButton("Export Video", this);
@@ -52,6 +68,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_aiEnabledCheckBox = new QCheckBox("AI", this);
     m_aiIntervalCombo = new QComboBox(this);
     m_yoloStatusLabel = new QLabel("ONNX: not loaded", this);
+    m_yoloStatusLabel->setObjectName("yoloStatusLabel");
     m_eventsTextLabel = new QLabel("Events", this);
     m_seekSlider = new QSlider(Qt::Horizontal, this);
     m_speedSlider = new QSlider(Qt::Horizontal, this);
@@ -59,19 +76,34 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_removeEventButton = new QPushButton("Remove", this);
     m_clearEventsButton = new QPushButton("Clear", this);
 
+    cameraButton->setProperty("variant", "primary");
+    openVideoButton->setProperty("variant", "primary");
+    m_exportVideoButton->setProperty("variant", "accent");
+    m_playPauseButton->setProperty("variant", "primary");
+    m_loadYoloButton->setProperty("variant", "accent");
+    m_removeEventButton->setProperty("variant", "flat");
+    m_clearEventsButton->setProperty("variant", "flat");
+
+    m_seekTextLabel->setProperty("caption", true);
+    m_speedTextLabel->setProperty("caption", true);
+    m_trackerTextLabel->setProperty("caption", true);
+    m_eventsTextLabel->setProperty("caption", true);
+    m_resolutionTextLabel->setProperty("caption", true);
+
     m_seekSlider->setRange(0, 0);
-    m_seekSlider->setMinimumWidth(220);
-    m_seekTimeLabel->setMinimumWidth(140);
+    m_seekSlider->setMinimumWidth(280);
+    m_seekSlider->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_seekTimeLabel->setMinimumWidth(180);
     m_speedSlider->setRange(25, 300);
     m_speedSlider->setValue(100);
-    m_speedSlider->setFixedWidth(140);
+    m_speedSlider->setMinimumWidth(170);
     m_resolutionCombo->addItem("640 x 480", QSize(640, 480));
     m_resolutionCombo->addItem("1280 x 720", QSize(1280, 720));
     m_resolutionCombo->addItem("1920 x 1080", QSize(1920, 1080));
     m_resolutionCombo->setCurrentIndex(0);
-    m_resolutionCombo->setFixedWidth(120);
-    m_trackerPickerButton->setMinimumWidth(120);
-    m_loadYoloButton->setFixedWidth(100);
+    m_resolutionCombo->setFixedWidth(138);
+    m_trackerPickerButton->setMinimumWidth(132);
+    m_loadYoloButton->setMinimumWidth(112);
     m_aiEnabledCheckBox->setChecked(false);
     m_aiIntervalCombo->addItem("5 frames", 5);
     m_aiIntervalCombo->addItem("10 frames", 10);
@@ -79,32 +111,41 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_aiIntervalCombo->addItem("30 frames", 30);
     m_aiIntervalCombo->addItem("60 frames", 60);
     m_aiIntervalCombo->setCurrentIndex(3);
-    m_aiIntervalCombo->setFixedWidth(110);
-    m_yoloStatusLabel->setMinimumWidth(180);
+    m_aiIntervalCombo->setFixedWidth(118);
+    m_yoloStatusLabel->setMinimumWidth(195);
     m_eventsList->setMinimumWidth(220);
     m_eventsList->setMaximumWidth(260);
-    m_removeEventButton->setFixedWidth(80);
-    m_clearEventsButton->setFixedWidth(80);
+    m_removeEventButton->setFixedWidth(92);
+    m_clearEventsButton->setFixedWidth(92);
 
-    controls->addWidget(cameraButton);
-    controls->addWidget(openVideoButton);
-    controls->addWidget(m_exportVideoButton);
-    controls->addWidget(m_playPauseButton);
-    controls->addWidget(m_resolutionTextLabel);
-    controls->addWidget(m_resolutionCombo);
-    controls->addWidget(m_seekTextLabel);
-    controls->addWidget(m_seekSlider);
-    controls->addWidget(m_seekTimeLabel);
-    controls->addWidget(m_speedTextLabel);
-    controls->addWidget(m_speedSlider);
-    controls->addWidget(m_speedValueLabel);
-    controls->addWidget(m_trackerTextLabel);
-    controls->addWidget(m_trackerPickerButton);
-    controls->addWidget(m_loadYoloButton);
-    controls->addWidget(m_aiEnabledCheckBox);
-    controls->addWidget(m_aiIntervalCombo);
-    controls->addWidget(m_yoloStatusLabel);
-    controls->addStretch();
+    controlsTop->addWidget(cameraButton);
+    controlsTop->addWidget(openVideoButton);
+    controlsTop->addWidget(m_exportVideoButton);
+    controlsTop->addWidget(m_playPauseButton);
+    controlsTop->addSpacing(8);
+    controlsTop->addWidget(m_resolutionTextLabel);
+    controlsTop->addWidget(m_resolutionCombo);
+    controlsTop->addSpacing(8);
+    controlsTop->addWidget(m_seekTextLabel);
+    controlsTop->addWidget(m_seekSlider, 1);
+    controlsTop->addWidget(m_seekTimeLabel);
+
+    controlsBottom->addWidget(m_speedTextLabel);
+    controlsBottom->addWidget(m_speedSlider);
+    controlsBottom->addWidget(m_speedValueLabel);
+    controlsBottom->addSpacing(16);
+    controlsBottom->addWidget(m_trackerTextLabel);
+    controlsBottom->addWidget(m_trackerPickerButton);
+    controlsBottom->addWidget(m_loadYoloButton);
+    controlsBottom->addSpacing(8);
+    controlsBottom->addWidget(m_aiEnabledCheckBox);
+    controlsBottom->addWidget(m_aiIntervalCombo);
+    controlsBottom->addWidget(m_yoloStatusLabel);
+    controlsBottom->addStretch();
+
+    controls->addLayout(controlsTop);
+    controls->addLayout(controlsBottom);
+    controlsCard->setLayout(controls);
 
     auto* trackerMenu = new QMenu(m_trackerPickerButton);
     const QStringList availableTrackers{
@@ -120,12 +161,19 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_trackerPickerButton->setMenu(trackerMenu);
     syncTrackerButtonText();
 
-    layout->addLayout(controls, 0);
+    layout->addWidget(controlsCard, 0);
 
     auto* contentLayout = new QHBoxLayout;
-    contentLayout->setSpacing(8);
+    contentLayout->setSpacing(12);
 
-    auto* eventsPanel = new QVBoxLayout;
+    auto* eventsCard = new QFrame(this);
+    eventsCard->setObjectName("eventsCard");
+    auto* eventsPanel = new QVBoxLayout(eventsCard);
+    eventsPanel->setContentsMargins(12, 12, 12, 12);
+    eventsPanel->setSpacing(8);
+    eventsCard->setMinimumWidth(250);
+    eventsCard->setMaximumWidth(320);
+
     eventsPanel->addWidget(m_eventsTextLabel, 0);
     eventsPanel->addWidget(m_eventsList, 1);
 
@@ -135,9 +183,139 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     eventsButtons->addStretch();
     eventsPanel->addLayout(eventsButtons, 0);
 
-    contentLayout->addLayout(eventsPanel, 0);
-    contentLayout->addWidget(m_videoLabel, 1);
+    auto* videoCard = new QFrame(this);
+    videoCard->setObjectName("videoCard");
+    auto* videoLayout = new QVBoxLayout(videoCard);
+    videoLayout->setContentsMargins(12, 12, 12, 12);
+    videoLayout->setSpacing(6);
+    videoLayout->addWidget(m_videoLabel, 1);
+
+    contentLayout->addWidget(eventsCard, 0);
+    contentLayout->addWidget(videoCard, 1);
     layout->addLayout(contentLayout, 1);
+
+    setStyleSheet(
+        "QWidget#appRoot {"
+        "  background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #10171f, stop:1 #1a2430);"
+        "  color: #e7edf4;"
+        "}"
+        "QFrame#controlsCard, QFrame#eventsCard, QFrame#videoCard {"
+        "  background: rgba(14, 24, 34, 0.88);"
+        "  border: 1px solid rgba(130, 170, 210, 0.25);"
+        "  border-radius: 12px;"
+        "}"
+        "QLabel[caption=\"true\"] {"
+        "  color: #8fb8de;"
+        "  font-weight: 600;"
+        "}"
+        "QLabel[caption=\"true\"]:disabled {"
+        "  color: #7da0bf;"
+        "}"
+        "QLabel:disabled {"
+        "  color: #9ab2c7;"
+        "}"
+        "QLabel#yoloStatusLabel {"
+        "  color: #f3c577;"
+        "  font-weight: 700;"
+        "}"
+        "QLabel#videoSurface {"
+        "  background-color: #080d13;"
+        "  border: 1px solid rgba(95, 130, 160, 0.45);"
+        "  border-radius: 10px;"
+        "}"
+        "QPushButton {"
+        "  border-radius: 8px;"
+        "  border: 1px solid rgba(118, 156, 188, 0.35);"
+        "  background: #243242;"
+        "  color: #edf6ff;"
+        "  padding: 5px 10px;"
+        "  min-height: 24px;"
+        "}"
+        "QPushButton:hover {"
+        "  background: #2b3d52;"
+        "}"
+        "QPushButton:pressed {"
+        "  background: #1d2a38;"
+        "}"
+        "QPushButton[variant=\"primary\"] {"
+        "  background: #1d4f65;"
+        "  border-color: rgba(111, 197, 229, 0.7);"
+        "}"
+        "QPushButton[variant=\"primary\"]:hover {"
+        "  background: #24617d;"
+        "}"
+        "QPushButton[variant=\"accent\"] {"
+        "  background: #7f4f28;"
+        "  border-color: rgba(255, 180, 110, 0.8);"
+        "}"
+        "QPushButton[variant=\"accent\"]:hover {"
+        "  background: #946036;"
+        "}"
+        "QPushButton[variant=\"flat\"] {"
+        "  background: #1f2a37;"
+        "}"
+        "QComboBox, QListWidget, QSlider, QCheckBox, QLabel {"
+        "  font-size: 10.5pt;"
+        "}"
+        "QComboBox, QListWidget {"
+        "  background: #182330;"
+        "  color: #edf6ff;"
+        "  border: 1px solid rgba(118, 156, 188, 0.35);"
+        "  border-radius: 8px;"
+        "  padding: 4px 8px;"
+        "  min-height: 24px;"
+        "}"
+        "QComboBox:disabled {"
+        "  color: #9ab2c7;"
+        "}"
+        "QComboBox::drop-down {"
+        "  border: none;"
+        "  width: 22px;"
+        "}"
+        "QComboBox QAbstractItemView {"
+        "  background: #132130;"
+        "  color: #edf6ff;"
+        "  selection-background-color: #2b6988;"
+        "  selection-color: #ffffff;"
+        "  border: 1px solid rgba(118, 156, 188, 0.5);"
+        "  outline: 0;"
+        "}"
+        "QListWidget::item:selected {"
+        "  background: #27516c;"
+        "  border-radius: 4px;"
+        "}"
+        "QCheckBox {"
+        "  spacing: 6px;"
+        "}"
+        "QCheckBox::indicator {"
+        "  width: 16px;"
+        "  height: 16px;"
+        "  border-radius: 5px;"
+        "  border: 1px solid rgba(118, 156, 188, 0.5);"
+        "  background: #1a2633;"
+        "}"
+        "QCheckBox::indicator:checked {"
+        "  background: #2d8a70;"
+        "  border: 1px solid #62c9a9;"
+        "}"
+        "QSlider::groove:horizontal {"
+        "  border: none;"
+        "  height: 6px;"
+        "  border-radius: 3px;"
+        "  background: #223241;"
+        "}"
+        "QSlider::sub-page:horizontal {"
+        "  border-radius: 3px;"
+        "  background: #2f7ea7;"
+        "}"
+        "QSlider::handle:horizontal {"
+        "  width: 14px;"
+        "  margin: -5px 0;"
+        "  border-radius: 7px;"
+        "  background: #f3fbff;"
+        "  border: 1px solid #7bb3d5;"
+        "}"
+    );
 
     connect(cameraButton, &QPushButton::clicked, this, &MainWindow::onCameraClicked);
     connect(openVideoButton, &QPushButton::clicked, this, &MainWindow::onOpenVideoClicked);
@@ -723,13 +901,14 @@ void MainWindow::refreshYoloStatusLabel() {
     }
 
     if (m_yoloModelPath.isEmpty()) {
-        m_yoloStatusLabel->setText("ONNX: not loaded");
+        const QString aiState = (m_aiEnabledCheckBox && m_aiEnabledCheckBox->isChecked()) ? "ON" : "OFF";
+        m_yoloStatusLabel->setText(QString("ONNX: not loaded | AI: %1").arg(aiState));
         return;
     }
 
     const QString modelName = QFileInfo(m_yoloModelPath).completeBaseName();
-    const QString aiState = (m_aiEnabledCheckBox && m_aiEnabledCheckBox->isChecked()) ? "on" : "off";
-    m_yoloStatusLabel->setText(QString("ONNX: %1 (%2)").arg(modelName, aiState));
+    const QString aiState = (m_aiEnabledCheckBox && m_aiEnabledCheckBox->isChecked()) ? "ON" : "OFF";
+    m_yoloStatusLabel->setText(QString("ONNX: %1 | AI: %2").arg(modelName, aiState));
 }
 
 QStringList MainWindow::loadClassNamesFromFile(const QString& filePath) const {
@@ -833,7 +1012,12 @@ void MainWindow::setVideoControlsEnabled(bool enabled) {
 }
 
 void MainWindow::updateFrame(const QImage& frame) {
-    m_videoLabel->setPixmap(QPixmap::fromImage(frame));
+    QPixmap pixmap = QPixmap::fromImage(frame);
+    const QSize targetSize = m_videoLabel->contentsRect().size();
+    if (targetSize.isValid()) {
+        pixmap = pixmap.scaled(targetSize, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+    }
+    m_videoLabel->setPixmap(pixmap);
     m_videoLabel->setFrameSize(frame.width(), frame.height());
 }
 

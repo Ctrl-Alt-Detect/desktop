@@ -7,7 +7,7 @@
 VideoLabel::VideoLabel(QWidget* parent)
     : QLabel(parent) {
     setAlignment(Qt::AlignCenter);
-    setScaledContents(true);
+    setScaledContents(false);
 }
 
 void VideoLabel::setFrameSize(int width, int height) {
@@ -40,9 +40,20 @@ QPoint VideoLabel::mapToFrameCoords(const QPoint& widgetPos) const {
         return widgetPos;
     }
 
-    // Label uses scaled contents, so the image is stretched to fill contentsRect.
-    const float relX = static_cast<float>(widgetPos.x() - contentRect.left()) / contentRect.width();
-    const float relY = static_cast<float>(widgetPos.y() - contentRect.top()) / contentRect.height();
+    const float scaleX = static_cast<float>(contentRect.width()) / static_cast<float>(m_frameWidth);
+    const float scaleY = static_cast<float>(contentRect.height()) / static_cast<float>(m_frameHeight);
+    const float scale = std::min(scaleX, scaleY);
+    if (scale <= 0.0f) {
+        return widgetPos;
+    }
+
+    const int drawWidth = static_cast<int>(m_frameWidth * scale);
+    const int drawHeight = static_cast<int>(m_frameHeight * scale);
+    const int drawLeft = contentRect.left() + (contentRect.width() - drawWidth) / 2;
+    const int drawTop = contentRect.top() + (contentRect.height() - drawHeight) / 2;
+
+    const float relX = static_cast<float>(widgetPos.x() - drawLeft) / std::max(1, drawWidth);
+    const float relY = static_cast<float>(widgetPos.y() - drawTop) / std::max(1, drawHeight);
 
     const float clampedRelX = std::max(0.0f, std::min(1.0f, relX));
     const float clampedRelY = std::max(0.0f, std::min(1.0f, relY));
