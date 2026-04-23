@@ -1,294 +1,7 @@
 #include "cameraworker.h"
 #include <QDebug>
-#include <QFileInfo>
-#include <QRegularExpression>
 #include <QThread>
 #include <algorithm>
-
-namespace {
-cv::Size inferYoloInputSizeFromModelPath(const QString& modelPath) {
-    // Accept names like "yolo11n_480.onnx" or "model_640x640.onnx".
-    const QRegularExpression pairPattern("(\\d{3,4})[xX](\\d{3,4})");
-    QRegularExpressionMatch pairMatch = pairPattern.match(modelPath);
-    if (pairMatch.hasMatch()) {
-        const int width = pairMatch.captured(1).toInt();
-        const int height = pairMatch.captured(2).toInt();
-        if (width > 0 && height > 0) {
-            return cv::Size(width, height);
-        }
-    }
-
-    const QRegularExpression squarePattern("_(\\d{3,4})(?=\\.[^.]+$)");
-    QRegularExpressionMatch squareMatch = squarePattern.match(modelPath);
-    if (squareMatch.hasMatch()) {
-        const int size = squareMatch.captured(1).toInt();
-        if (size > 0) {
-            return cv::Size(size, size);
-        }
-    }
-
-    return cv::Size(640, 640);
-}
-
-bool isLikelyNormalizedBox(float cx, float cy, float width, float height) {
-    return cx >= 0.0f && cy >= 0.0f && width > 0.0f && height > 0.0f && cx <= 1.5f && cy <= 1.5f && width <= 1.5f && height <= 1.5f;
-}
-}
-
-bool CameraWorker::loadYoloNetLocked() {
-    if (m_yoloNetLoaded && !m_yoloNetDirty) {
-        return true;
-    }
-
-    if (m_yoloModelPath.isEmpty()) {
-        m_yoloNetLoaded = false;
-        m_yoloNetDirty = false;
-        return false;
-    }
-
-    if (!QFileInfo::exists(m_yoloModelPath)) {
-        qWarning() << "YOLO model file does not exist:" << m_yoloModelPath;
-        m_yoloNetLoaded = false;
-        m_yoloNetDirty = false;
-        return false;
-    }
-
-    try {
-        m_yoloNet = cv::dnn::readNetFromONNX(m_yoloModelPath.toStdString());
-        m_yoloNet.setPreferableBackend(cv::dnn::DNN_BACKEND_OPENCV);
-        m_yoloNet.setPreferableTarget(cv::dnn::DNN_TARGET_CPU);
-        m_yoloNetLoaded = true;
-        m_yoloNetDirty = false;
-        return true;
-    } catch (const cv::Exception& ex) {
-        qWarning() << "Failed to load YOLO model:" << ex.what();
-    }
-
-    m_yoloNetLoaded = false;
-    m_yoloNetDirty = false;
-    return false;
-}
-
-bool CameraWorker::detectYoloObjects(const cv::Mat& frame, std::vector<YoloDetection>& detections) {
-    detections.clear();
-
-    std::lock_guard<std::mutex> lock(m_yoloMutex);
-    if (!m_aiEnabled || m_yoloModelPath.isEmpty()) {
-        return false;
-    }
-
-    try {
-        if (!loadYoloNetLocked()) {
-            return false;
-        }
-
-        const cv::Size modelInputSize = inferYoloInputSizeFromModelPath(m_yoloModelPath);
-        cv::Mat blob = cv::dnn::blobFromImage(frame, 1.0 / 255.0, modelInputSize, cv::Scalar(), true, false);
-        m_yoloNet.setInput(blob);
-
-        std::vector<cv::Mat> outputs;
-        m_yoloNet.forward(outputs, m_yoloNet.getUnconnectedOutLayersNames());
-
-        if (!m_yoloOutputInfoLogged) {
-            QStringList shapes;
-            for (const cv::Mat& output : outputs) {
-                QStringList dims;
-                for (int dimIndex = 0; dimIndex < output.dims; ++dimIndex) {
-                    dims << QString::number(output.size[dimIndex]);
-                }
-                shapes << QString("[%1]").arg(dims.join('x'));
-            }
-            qInfo() << "YOLO outputs:" << shapes.join(", ") << "input" << modelInputSize.width << "x" << modelInputSize.height;
-            m_yoloOutputInfoLogged = true;
-        }
-
-        std::vector<cv::Rect> boxes;
-        std::vector<float> confidences;
-        std::vector<int> classIds;
-
-        auto appendDetectionsFrom2D = [&](const cv::Mat& predictions) {
-            if (predictions.empty() || predictions.cols < 6) {
-                return;
-            }
-
-            for (int rowIndex = 0; rowIndex < predictions.rows; ++rowIndex) {
-                const float* row = predictions.ptr<float>(rowIndex);
-                const int attributes = predictions.cols;
-
-                int classStartIndex = 5;
-                float objectness = row[4];
-
-                if (!m_yoloClassNames.isEmpty()) {
-                    if (attributes == m_yoloClassNames.size() + 4) {
-                        classStartIndex = 4;
-                        objectness = 1.0f;
-                    } else if (attributes == m_yoloClassNames.size() + 5) {
-                        classStartIndex = 5;
-                    }
-                } else if (attributes >= 8 && attributes != 85) {
-                    // Most YOLOv8/11 exports are [x,y,w,h,cls...] without objectness.
-                    classStartIndex = 4;
-                    objectness = 1.0f;
-                }
-
-                if (attributes <= classStartIndex) {
-                    continue;
-                }
-
-                float bestClassScore = 0.0f;
-                int bestClassId = -1;
-                for (int classIndex = classStartIndex; classIndex < attributes; ++classIndex) {
-                    if (row[classIndex] > bestClassScore) {
-                        bestClassScore = row[classIndex];
-                        bestClassId = classIndex - classStartIndex;
-                    }
-                }
-
-                const float confidence = objectness * bestClassScore;
-                if (confidence < 0.25f || bestClassId < 0) {
-                    continue;
-                }
-
-                float centerX = row[0];
-                float centerY = row[1];
-                float width = row[2];
-                float height = row[3];
-
-                if (isLikelyNormalizedBox(centerX, centerY, width, height)) {
-                    centerX *= static_cast<float>(frame.cols);
-                    centerY *= static_cast<float>(frame.rows);
-                    width *= static_cast<float>(frame.cols);
-                    height *= static_cast<float>(frame.rows);
-                } else {
-                    const float xScale = static_cast<float>(frame.cols) / static_cast<float>(std::max(1, modelInputSize.width));
-                    const float yScale = static_cast<float>(frame.rows) / static_cast<float>(std::max(1, modelInputSize.height));
-                    centerX *= xScale;
-                    centerY *= yScale;
-                    width *= xScale;
-                    height *= yScale;
-                }
-
-                int left = static_cast<int>(centerX - width * 0.5f);
-                int top = static_cast<int>(centerY - height * 0.5f);
-                int boxWidth = static_cast<int>(width);
-                int boxHeight = static_cast<int>(height);
-
-                left = std::max(0, std::min(left, std::max(0, frame.cols - 1)));
-                top = std::max(0, std::min(top, std::max(0, frame.rows - 1)));
-                boxWidth = std::max(1, std::min(boxWidth, std::max(1, frame.cols - left)));
-                boxHeight = std::max(1, std::min(boxHeight, std::max(1, frame.rows - top)));
-
-                boxes.emplace_back(left, top, boxWidth, boxHeight);
-                confidences.push_back(confidence);
-                classIds.push_back(bestClassId);
-            }
-        };
-
-        for (const cv::Mat& output : outputs) {
-            if (output.empty()) {
-                continue;
-            }
-
-            if (output.dims == 2) {
-                appendDetectionsFrom2D(output);
-                continue;
-            }
-
-            if (output.dims == 3 && output.size[0] == 1) {
-                const int dim1 = output.size[1];
-                const int dim2 = output.size[2];
-
-                if (dim1 > 0 && dim2 > 0) {
-                    cv::Mat view;
-                    if (dim1 >= dim2) {
-                        // [1, num_predictions, attributes]
-                        view = cv::Mat(dim1, dim2, CV_32F, const_cast<float*>(output.ptr<float>(0)));
-                    } else {
-                        // [1, attributes, num_predictions] -> transpose to [num_predictions, attributes]
-                        cv::Mat attrsByPred = cv::Mat(dim1, dim2, CV_32F, const_cast<float*>(output.ptr<float>(0)));
-                        view = attrsByPred.t();
-                    }
-                    appendDetectionsFrom2D(view);
-                }
-            }
-        }
-
-        if (boxes.empty()) {
-            return false;
-        }
-
-        std::vector<int> indices;
-        cv::dnn::NMSBoxes(boxes, confidences, 0.25f, 0.45f, indices);
-
-        for (int index : indices) {
-            YoloDetection detection;
-            detection.classId = classIds[index];
-            detection.confidence = confidences[index];
-            detection.box = boxes[index];
-            detections.push_back(detection);
-        }
-    } catch (const cv::Exception& ex) {
-        qWarning() << "YOLO inference failed; disabling AI for this session:" << ex.what();
-        m_aiEnabled = false;
-        m_targetClassPending = false;
-        return false;
-    }
-
-    return !detections.empty();
-}
-
-double CameraWorker::rectIntersectionOverUnion(const cv::Rect2d& lhs, const cv::Rect2d& rhs) {
-    const double intersectionLeft = std::max(lhs.x, rhs.x);
-    const double intersectionTop = std::max(lhs.y, rhs.y);
-    const double intersectionRight = std::min(lhs.x + lhs.width, rhs.x + rhs.width);
-    const double intersectionBottom = std::min(lhs.y + lhs.height, rhs.y + rhs.height);
-
-    const double intersectionWidth = std::max(0.0, intersectionRight - intersectionLeft);
-    const double intersectionHeight = std::max(0.0, intersectionBottom - intersectionTop);
-    const double intersectionArea = intersectionWidth * intersectionHeight;
-    const double lhsArea = std::max(0.0, lhs.width) * std::max(0.0, lhs.height);
-    const double rhsArea = std::max(0.0, rhs.width) * std::max(0.0, rhs.height);
-
-    const double unionArea = lhsArea + rhsArea - intersectionArea;
-    if (unionArea <= 0.0) {
-        return 0.0;
-    }
-
-    return intersectionArea / unionArea;
-}
-
-bool CameraWorker::chooseDetectionForSelection(const std::vector<YoloDetection>& detections, const cv::Rect2d& referenceBox, YoloDetection& selectedDetection) const {
-    double bestScore = -1.0;
-    bool found = false;
-
-    for (const YoloDetection& detection : detections) {
-        const double score = rectIntersectionOverUnion(referenceBox, detection.box) + static_cast<double>(detection.confidence) * 0.1;
-        if (!found || score > bestScore) {
-            bestScore = score;
-            selectedDetection = detection;
-            found = true;
-        }
-    }
-
-    return found;
-}
-
-bool CameraWorker::chooseDetectionForCorrection(const std::vector<YoloDetection>& detections, const cv::Rect2d& referenceBox, YoloDetection& selectedDetection) const {
-    double bestScore = -1.0;
-    bool found = false;
-
-    for (const YoloDetection& detection : detections) {
-        const double iou = rectIntersectionOverUnion(referenceBox, detection.box);
-        const double score = iou * 0.7 + static_cast<double>(detection.confidence) * 0.3;
-        if (!found || score > bestScore) {
-            bestScore = score;
-            selectedDetection = detection;
-            found = true;
-        }
-    }
-
-    return found;
-}
 
 void CameraWorker::applyTrackerBoxLocked(const cv::Rect2d& box, const cv::Mat& frame) {
     cv::Rect initRect = static_cast<cv::Rect>(box);
@@ -414,10 +127,8 @@ void CameraWorker::setYoloModel(const QString& modelPath, const QStringList& cla
     const bool modelChanged = (m_yoloModelPath != modelPath) || (m_yoloClassNames != classNames);
     m_yoloModelPath = modelPath;
     m_yoloClassNames = classNames;
+    m_yoloAssist.setModel(modelPath, classNames);
     if (modelChanged) {
-        m_yoloNetDirty = true;
-        m_yoloNetLoaded = false;
-        m_yoloOutputInfoLogged = false;
         m_targetClassId = -1;
         m_targetClassPending = false;
     }
@@ -668,9 +379,10 @@ void CameraWorker::run() {
         }
 
         if (runAiPass) {
-            std::vector<YoloDetection> detections;
-            if (detectYoloObjects(frame, detections) && !detections.empty()) {
-                YoloDetection selectedDetection;
+            std::vector<YoloAssist::Detection> detections;
+            QString yoloError;
+            if (m_yoloAssist.detect(frame, detections, &yoloError) && !detections.empty()) {
+                YoloAssist::Detection selectedDetection;
                 bool foundDetection = false;
 
                 cv::Rect2d currentTrackerBox;
@@ -680,24 +392,24 @@ void CameraWorker::run() {
                 }
 
                 if (targetClassPending) {
-                    foundDetection = chooseDetectionForSelection(detections, currentTrackerBox, selectedDetection);
+                    foundDetection = YoloAssist::chooseDetectionForSelection(detections, currentTrackerBox, selectedDetection);
                 }
 
                 if (!foundDetection && targetClassId >= 0) {
-                    std::vector<YoloDetection> matchingDetections;
-                    for (const YoloDetection& detection : detections) {
+                    std::vector<YoloAssist::Detection> matchingDetections;
+                    for (const YoloAssist::Detection& detection : detections) {
                         if (detection.classId == targetClassId) {
                             matchingDetections.push_back(detection);
                         }
                     }
 
                     if (!matchingDetections.empty()) {
-                        foundDetection = chooseDetectionForCorrection(matchingDetections, currentTrackerBox, selectedDetection);
+                        foundDetection = YoloAssist::chooseDetectionForCorrection(matchingDetections, currentTrackerBox, selectedDetection);
                     }
                 }
 
                 if (!foundDetection) {
-                    foundDetection = chooseDetectionForCorrection(detections, currentTrackerBox, selectedDetection);
+                    foundDetection = YoloAssist::chooseDetectionForCorrection(detections, currentTrackerBox, selectedDetection);
                 }
 
                 if (foundDetection) {
@@ -709,6 +421,11 @@ void CameraWorker::run() {
                         m_targetClassPending = false;
                     }
                 }
+            } else if (!yoloError.isEmpty()) {
+                qWarning() << "YOLO inference failed; disabling AI for this session:" << yoloError;
+                std::lock_guard<std::mutex> yoloLock(m_yoloMutex);
+                m_aiEnabled = false;
+                m_targetClassPending = false;
             }
         }
 

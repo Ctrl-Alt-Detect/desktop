@@ -10,6 +10,7 @@
 #include <opencv2/opencv.hpp>
 #include <opencv2/dnn.hpp>
 #include <opencv2/tracking.hpp>
+#include "yoloassist.h"
 
 class CameraWorker : public QObject {
 Q_OBJECT
@@ -46,19 +47,8 @@ public slots:
     void resetTracker();
 
 private:
-    struct YoloDetection {
-        int classId{-1};
-        float confidence{0.0f};
-        cv::Rect box;
-    };
-
     cv::Ptr<cv::Tracker> createTrackerByName(const QString& trackerType) const;
     void rebuildTrackersLocked();
-    bool loadYoloNetLocked();
-    bool detectYoloObjects(const cv::Mat& frame, std::vector<YoloDetection>& detections);
-    static double rectIntersectionOverUnion(const cv::Rect2d& lhs, const cv::Rect2d& rhs);
-    bool chooseDetectionForSelection(const std::vector<YoloDetection>& detections, const cv::Rect2d& referenceBox, YoloDetection& selectedDetection) const;
-    bool chooseDetectionForCorrection(const std::vector<YoloDetection>& detections, const cv::Rect2d& referenceBox, YoloDetection& selectedDetection) const;
     void applyTrackerBoxLocked(const cv::Rect2d& box, const cv::Mat& frame);
 
     QString m_source;
@@ -80,10 +70,7 @@ private:
     std::mutex m_yoloMutex;
     QString m_yoloModelPath;
     QStringList m_yoloClassNames;
-    cv::dnn::Net m_yoloNet;
-    bool m_yoloNetLoaded{false};
-    bool m_yoloNetDirty{false};
-    bool m_yoloOutputInfoLogged{false};
+    YoloAssist m_yoloAssist;
     bool m_aiEnabled{false};
     int m_aiIntervalFrames{30};
     int m_targetClassId{-1};

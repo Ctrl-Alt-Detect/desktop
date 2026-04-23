@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "yoloassist.h"
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QPushButton>
@@ -291,6 +292,53 @@ void MainWindow::onExportVideoClicked() {
     bool trackingActive = false;
     bool trackingInitialized = false;
     cv::Rect2d trackerBox;
+    bool exportAiAssistEnabled = (m_aiEnabledCheckBox && m_aiEnabledCheckBox->isChecked() && !m_yoloModelPath.isEmpty());
+    const int aiIntervalFrames = std::max(1, m_aiIntervalCombo ? m_aiIntervalCombo->currentData().toInt() : 30);
+    int targetClassId = -1;
+    bool targetClassPending = false;
+    YoloAssist exportYoloAssist;
+    if (exportAiAssistEnabled) {
+        exportYoloAssist.setModel(m_yoloModelPath, m_yoloClassNames);
+    }
+
+    auto applyTrackerBoxAndReinitialize = [&](const cv::Rect2d& box, const cv::Mat& currentFrame) {
+        cv::Rect initRect = static_cast<cv::Rect>(box);
+        initRect.x = std::max(0, std::min(initRect.x, std::max(0, currentFrame.cols - 1)));
+        initRect.y = std::max(0, std::min(initRect.y, std::max(0, currentFrame.rows - 1)));
+        initRect.width = std::max(1, std::min(initRect.width, std::max(1, currentFrame.cols - initRect.x)));
+        initRect.height = std::max(1, std::min(initRect.height, std::max(1, currentFrame.rows - initRect.y)));
+
+        trackerBox = cv::Rect2d(initRect.x, initRect.y, initRect.width, initRect.height);
+        trackers = buildTrackers(selectedTypes);
+        trackingInitialized = false;
+
+        int initCount = 0;
+        for (auto& tracker : trackers) {
+            if (!tracker) {
+                continue;
+            }
+            try {
+                tracker->init(currentFrame, initRect);
+                ++initCount;
+            } catch (const cv::Exception& ex) {
+                qWarning() << "Export tracker reinit failed after YOLO correction:" << ex.what();
+            }
+        }
+
+        if (initCount == 0) {
+            try {
+                trackers.clear();
+                cv::Ptr<cv::Tracker> fallback = cv::TrackerCSRT::create();
+                fallback->init(currentFrame, initRect);
+                trackers.push_back(fallback);
+                initCount = 1;
+            } catch (const cv::Exception& ex) {
+                qWarning() << "Export fallback tracker reinit failed after YOLO correction:" << ex.what();
+            }
+        }
+
+        trackingInitialized = (initCount > 0);
+    };
 
     cv::Mat frame;
     int frameIndex = 0;
@@ -309,10 +357,16 @@ void MainWindow::onExportVideoClicked() {
                 trackers = buildTrackers(selectedTypes);
                 trackingActive = true;
                 trackingInitialized = false;
+                if (exportAiAssistEnabled) {
+                    targetClassId = -1;
+                    targetClassPending = true;
+                }
             } else {
                 trackers.clear();
                 trackingActive = false;
                 trackingInitialized = false;
+                targetClassId = -1;
+                targetClassPending = false;
             }
         }
 
@@ -373,6 +427,52 @@ void MainWindow::onExportVideoClicked() {
 
                 if (successCount > 0) {
                     trackerBox = cv::Rect2d(sumX / successCount, sumY / successCount, sumW / successCount, sumH / successCount);
+                }
+            }
+
+            const bool runAiPass = exportAiAssistEnabled && (targetClassPending || (aiIntervalFrames > 0 && frameIndex % aiIntervalFrames == 0));
+            if (runAiPass) {
+                std::vector<YoloAssist::Detection> detections;
+                QString yoloError;
+                if (exportYoloAssist.detect(frame, detections, &yoloError) && !detections.empty()) {
+                    YoloAssist::Detection selectedDetection;
+                    bool foundDetection = false;
+
+                    if (targetClassPending) {
+                        foundDetection = YoloAssist::chooseDetectionForSelection(detections, trackerBox, selectedDetection);
+                    }
+
+                    if (!foundDetection && targetClassId >= 0) {
+                        std::vector<YoloAssist::Detection> matchingDetections;
+                        for (const YoloAssist::Detection& detection : detections) {
+                            if (detection.classId == targetClassId) {
+                                matchingDetections.push_back(detection);
+                            }
+                        }
+
+                        if (!matchingDetections.empty()) {
+                            foundDetection = YoloAssist::chooseDetectionForCorrection(matchingDetections, trackerBox, selectedDetection);
+                        }
+                    }
+
+                    if (!foundDetection) {
+                        foundDetection = YoloAssist::chooseDetectionForCorrection(detections, trackerBox, selectedDetection);
+                    }
+
+                    if (foundDetection) {
+                        applyTrackerBoxAndReinitialize(
+                            cv::Rect2d(selectedDetection.box.x, selectedDetection.box.y, selectedDetection.box.width, selectedDetection.box.height),
+                            frame);
+
+                        if (targetClassPending) {
+                            targetClassId = selectedDetection.classId;
+                            targetClassPending = false;
+                        }
+                    }
+                } else if (!yoloError.isEmpty()) {
+                    qWarning() << "Export YOLO inference failed; disabling export AI assist:" << yoloError;
+                    exportAiAssistEnabled = false;
+                    targetClassPending = false;
                 }
             }
 
