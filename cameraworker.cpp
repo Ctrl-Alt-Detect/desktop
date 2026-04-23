@@ -1,7 +1,18 @@
 #include "cameraworker.h"
 #include <QDebug>
+#include <QElapsedTimer>
+#include <QFileInfo>
 #include <QThread>
 #include <algorithm>
+
+namespace {
+QString detectionClassName(int classId, const QStringList& classNames) {
+    if (classId >= 0 && classId < classNames.size()) {
+        return classNames[classId];
+    }
+    return QString("id:%1").arg(classId);
+}
+}
 
 void CameraWorker::applyTrackerBoxLocked(const cv::Rect2d& box, const cv::Mat& frame) {
     cv::Rect initRect = static_cast<cv::Rect>(box);
@@ -147,6 +158,13 @@ void CameraWorker::setAiInterval(int frameInterval) {
     m_aiIntervalFrames = std::max(1, frameInterval);
 }
 
+void CameraWorker::setDebugEnabled(bool enabled) {
+    m_debugEnabled = enabled;
+    if (!enabled) {
+        emit debugInfoReady(QString());
+    }
+}
+
 void CameraWorker::setPaused(bool paused) {
     m_paused = paused;
 }
@@ -242,6 +260,16 @@ void CameraWorker::run() {
 
     cv::Mat frame;
     int frameIndex = 0;
+    QElapsedTimer frameClock;
+    frameClock.start();
+    qint64 lastFrameTimestampMs = frameClock.elapsed();
+    double smoothedFps = 0.0;
+    int lastSleepDelayMs = 0;
+    std::vector<YoloAssist::Detection> lastYoloDetections;
+    QString lastYoloError;
+    int lastYoloFrame = -1;
+    bool lastYoloRan = false;
+
     while (m_running) {
         if (m_isVideoFile) {
             const int seekFrame = m_seekFrame.exchange(-1);
@@ -381,7 +409,11 @@ void CameraWorker::run() {
         if (runAiPass) {
             std::vector<YoloAssist::Detection> detections;
             QString yoloError;
+            lastYoloRan = true;
+            lastYoloFrame = frameIndex;
             if (m_yoloAssist.detect(frame, detections, &yoloError) && !detections.empty()) {
+                lastYoloDetections = detections;
+                lastYoloError.clear();
                 YoloAssist::Detection selectedDetection;
                 bool foundDetection = false;
 
@@ -422,15 +454,97 @@ void CameraWorker::run() {
                     }
                 }
             } else if (!yoloError.isEmpty()) {
+                lastYoloDetections.clear();
+                lastYoloError = yoloError;
                 qWarning() << "YOLO inference failed; disabling AI for this session:" << yoloError;
                 std::lock_guard<std::mutex> yoloLock(m_yoloMutex);
                 m_aiEnabled = false;
                 m_targetClassPending = false;
+            } else {
+                lastYoloDetections.clear();
+                lastYoloError.clear();
             }
+        } else {
+            lastYoloRan = false;
         }
 
         QImage img(frame.data, frame.cols, frame.rows, frame.step, QImage::Format_BGR888);
         emit frameReady(img.copy());
+
+        const qint64 nowMs = frameClock.elapsed();
+        const qint64 deltaMs = std::max<qint64>(1, nowMs - lastFrameTimestampMs);
+        lastFrameTimestampMs = nowMs;
+        const double instantFps = 1000.0 / static_cast<double>(deltaMs);
+        smoothedFps = (smoothedFps <= 0.0) ? instantFps : (smoothedFps * 0.9 + instantFps * 0.1);
+
+        if (m_debugEnabled.load()) {
+            QString modelPath;
+            QStringList classNames;
+            bool aiEnabled = false;
+            int aiInterval = 0;
+            int targetClassId = -1;
+            bool targetPending = false;
+            {
+                std::lock_guard<std::mutex> yoloLock(m_yoloMutex);
+                modelPath = m_yoloModelPath;
+                classNames = m_yoloClassNames;
+                aiEnabled = m_aiEnabled;
+                aiInterval = m_aiIntervalFrames;
+                targetClassId = m_targetClassId;
+                targetPending = m_targetClassPending;
+            }
+
+            const QString modelName = modelPath.isEmpty() ? QString("none") : QFileInfo(modelPath).fileName();
+            const cv::Size inputSize = m_yoloAssist.lastInputSize();
+            const QStringList outputShapes = m_yoloAssist.lastOutputShapes();
+
+            QStringList lines;
+            lines << "DEBUG [F3]";
+            lines << QString("Frame: %1 | FPS: %2 | Last delay: %3 ms").arg(frameIndex).arg(QString::number(smoothedFps, 'f', 1)).arg(lastSleepDelayMs);
+            lines << QString("Source FPS: %1 | Playback speed: %2x").arg(QString::number(fps, 'f', 2)).arg(QString::number(m_playbackSpeed.load(), 'f', 2));
+            lines << QString("AI: %1 | Interval: %2 | YOLO model: %3")
+                         .arg(aiEnabled ? "ON" : "OFF")
+                         .arg(aiInterval)
+                         .arg(modelName);
+            lines << QString("Target class: %1 | Pending lock: %2")
+                         .arg(targetClassId >= 0 ? detectionClassName(targetClassId, classNames) : QString("none"))
+                         .arg(targetPending ? "yes" : "no");
+
+            if (inputSize.width > 0 && inputSize.height > 0) {
+                lines << QString("YOLO input: %1x%2").arg(inputSize.width).arg(inputSize.height);
+            }
+            lines << QString("YOLO outputs: %1").arg(outputShapes.isEmpty() ? QString("n/a") : outputShapes.join(", "));
+            lines << QString("Raw candidates: %1 | NMS detections: %2 | Last AI frame: %3")
+                         .arg(m_yoloAssist.lastRawCandidateCount())
+                         .arg(static_cast<int>(lastYoloDetections.size()))
+                         .arg(lastYoloFrame >= 0 ? QString::number(lastYoloFrame) : QString("n/a"));
+
+            if (!lastYoloError.isEmpty()) {
+                lines << QString("YOLO error: %1").arg(lastYoloError);
+            }
+
+            if (!lastYoloDetections.empty()) {
+                lines << "Detections:";
+                const int maxDetectionsToShow = 16;
+                const int count = std::min(static_cast<int>(lastYoloDetections.size()), maxDetectionsToShow);
+                for (int i = 0; i < count; ++i) {
+                    const YoloAssist::Detection& detection = lastYoloDetections[static_cast<size_t>(i)];
+                    lines << QString("  #%1 %2 conf=%3 box=[%4,%5,%6,%7]")
+                                 .arg(i + 1)
+                                 .arg(detectionClassName(detection.classId, classNames))
+                                 .arg(QString::number(detection.confidence, 'f', 3))
+                                 .arg(detection.box.x)
+                                 .arg(detection.box.y)
+                                 .arg(detection.box.width)
+                                 .arg(detection.box.height);
+                }
+                if (static_cast<int>(lastYoloDetections.size()) > maxDetectionsToShow) {
+                    lines << QString("  ... %1 more detections").arg(static_cast<int>(lastYoloDetections.size()) - maxDetectionsToShow);
+                }
+            }
+
+            emit debugInfoReady(lines.join("\n"));
+        }
 
         if (m_isVideoFile) {
             const int currentFrame = static_cast<int>(m_cap.get(cv::CAP_PROP_POS_FRAMES));
@@ -444,8 +558,13 @@ void CameraWorker::run() {
             const double speed = std::max(0.1, m_playbackSpeed.load());
             const int delayMs = static_cast<int>(1000.0 / (fps * speed));
             if (delayMs > 0) {
+                lastSleepDelayMs = delayMs;
                 QThread::msleep(static_cast<unsigned long>(delayMs));
+            } else {
+                lastSleepDelayMs = 0;
             }
+        } else {
+            lastSleepDelayMs = 0;
         }
 
         ++frameIndex;

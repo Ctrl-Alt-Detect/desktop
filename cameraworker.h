@@ -27,9 +27,11 @@ public:
     void setYoloModel(const QString& modelPath, const QStringList& classNames);
     void setAiEnabled(bool enabled);
     void setAiInterval(int frameInterval);
+    void setDebugEnabled(bool enabled);
 
 signals:
     void frameReady(const QImage& frame);
+    void debugInfoReady(const QString& info);
     void videoInfo(int totalFrames, double fps);
     void positionChanged(int frameIndex);
     void playbackEnded();
@@ -75,4 +77,5 @@ private:
     int m_aiIntervalFrames{30};
     int m_targetClassId{-1};
     bool m_targetClassPending{false};
+    std::atomic_bool m_debugEnabled{false};
 };

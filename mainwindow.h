@@ -12,6 +12,7 @@
 #include <QList>
 #include <QAction>
 #include <QListWidget>
+#include <QKeyEvent>
 #include "cameraworker.h"
 #include "videolabel.h"
 
@@ -23,6 +24,7 @@ public:
 
 private slots:
     void updateFrame(const QImage& frame);
+    void onDebugInfoReady(const QString& info);
     void onCameraClicked();
     void onOpenVideoClicked();
     void onPlayPauseClicked();
@@ -46,6 +48,7 @@ private slots:
 
 protected:
     void closeEvent(QCloseEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
 
 private:
     enum class TrackingEventType {
@@ -100,6 +103,7 @@ private:
     QListWidget* m_eventsList{nullptr};
     QPushButton* m_removeEventButton{nullptr};
     QPushButton* m_clearEventsButton{nullptr};
+    QLabel* m_debugOverlayLabel{nullptr};
     QList<QAction*> m_trackerActions;
     QString m_yoloModelPath;
     QStringList m_yoloClassNames;
@@ -110,4 +114,5 @@ private:
     QString m_currentVideoPath;
     bool m_isVideoMode{false};
     bool m_isPaused{false};
+    bool m_debugOverlayEnabled{false};
 };

@@ -16,6 +16,11 @@ public:
 
     void setModel(const QString& modelPath, const QStringList& classNames);
     bool isModelConfigured() const;
+    QString modelPath() const;
+    cv::Size lastInputSize() const;
+    QStringList lastOutputShapes() const;
+    int lastRawCandidateCount() const;
+    int lastNmsCount() const;
 
     bool detect(const cv::Mat& frame, std::vector<Detection>& detections, QString* errorMessage = nullptr);
 
@@ -32,4 +37,8 @@ private:
     bool m_netLoaded{false};
     bool m_netDirty{false};
     bool m_outputInfoLogged{false};
+    cv::Size m_lastInputSize;
+    QStringList m_lastOutputShapes;
+    int m_lastRawCandidateCount{0};
+    int m_lastNmsCount{0};
 };

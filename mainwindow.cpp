@@ -38,6 +38,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_videoLabel->setMinimumSize(320, 240);
     m_videoLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     m_videoLabel->setScaledContents(false);
+    m_debugOverlayLabel = new QLabel(m_videoLabel);
+    m_debugOverlayLabel->setObjectName("debugOverlay");
+    m_debugOverlayLabel->setWordWrap(true);
+    m_debugOverlayLabel->setAlignment(Qt::AlignLeft | Qt::AlignTop);
+    m_debugOverlayLabel->setMargin(8);
+    m_debugOverlayLabel->hide();
 
     auto* layout = new QVBoxLayout(central);
     layout->setContentsMargins(16, 16, 16, 16);
@@ -224,6 +230,14 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         "  border: 1px solid rgba(200, 220, 238, 0.45);"
         "  border-radius: 2px;"
         "}"
+        "QLabel#debugOverlay {"
+        "  background: rgba(5, 10, 16, 0.72);"
+        "  color: #ecf6ff;"
+        "  border: 1px solid rgba(170, 208, 235, 0.55);"
+        "  border-radius: 4px;"
+        "  font-family: Consolas, 'Courier New', monospace;"
+        "  font-size: 9.5pt;"
+        "}"
         "QPushButton {"
         "  border-radius: 3px;"
         "  border: 1px solid rgba(174, 205, 232, 0.35);"
@@ -348,6 +362,25 @@ MainWindow::~MainWindow() {
 void MainWindow::closeEvent(QCloseEvent* event) {
     stopCameraThread();
     QMainWindow::closeEvent(event);
+}
+
+void MainWindow::keyPressEvent(QKeyEvent* event) {
+    if (event && event->key() == Qt::Key_F3) {
+        m_debugOverlayEnabled = !m_debugOverlayEnabled;
+        if (m_camera) {
+            m_camera->setDebugEnabled(m_debugOverlayEnabled);
+        }
+
+        if (!m_debugOverlayEnabled && m_debugOverlayLabel) {
+            m_debugOverlayLabel->clear();
+            m_debugOverlayLabel->hide();
+        }
+
+        event->accept();
+        return;
+    }
+
+    QMainWindow::keyPressEvent(event);
 }
 
 void MainWindow::onCameraClicked() {
@@ -872,12 +905,15 @@ void MainWindow::startSource(const QString& source, bool useGstreamer) {
 
     connect(m_thread, &QThread::started, m_camera, &CameraWorker::run);
     connect(m_camera, &CameraWorker::frameReady, this, &MainWindow::updateFrame, Qt::QueuedConnection);
+    connect(m_camera, &CameraWorker::debugInfoReady, this, &MainWindow::onDebugInfoReady, Qt::QueuedConnection);
     connect(m_camera, &CameraWorker::finished, m_thread, &QThread::quit);
     connect(m_camera, &CameraWorker::videoInfo, this, &MainWindow::onVideoInfo, Qt::QueuedConnection);
     connect(m_camera, &CameraWorker::positionChanged, this, &MainWindow::onVideoPosition, Qt::QueuedConnection);
     connect(m_camera, &CameraWorker::playbackEnded, this, &MainWindow::onPlaybackEnded, Qt::QueuedConnection);
     connect(m_videoLabel, &VideoLabel::selectionMade, this, &MainWindow::onTrackerSelection);
     connect(m_videoLabel, &VideoLabel::trackerReset, this, &MainWindow::onTrackerReset);
+
+    m_camera->setDebugEnabled(m_debugOverlayEnabled);
 
     m_thread->start();
 
@@ -968,6 +1004,11 @@ void MainWindow::stopCameraThread() {
 
     m_camera = nullptr;
     m_thread = nullptr;
+
+    if (m_debugOverlayLabel && !m_debugOverlayEnabled) {
+        m_debugOverlayLabel->clear();
+        m_debugOverlayLabel->hide();
+    }
 }
 
 void MainWindow::setVideoControlsEnabled(bool enabled) {
@@ -1021,6 +1062,31 @@ void MainWindow::updateFrame(const QImage& frame) {
     }
     m_videoLabel->setPixmap(pixmap);
     m_videoLabel->setFrameSize(frame.width(), frame.height());
+
+    if (m_debugOverlayLabel) {
+        const QRect area = m_videoLabel->contentsRect();
+        const int overlayWidth = std::min(520, std::max(260, area.width() / 2));
+        const int overlayHeight = std::min(320, std::max(120, area.height() / 3));
+        m_debugOverlayLabel->setGeometry(area.left() + 12, area.top() + 12, overlayWidth, overlayHeight);
+        m_debugOverlayLabel->setVisible(m_debugOverlayEnabled && !m_debugOverlayLabel->text().isEmpty());
+        m_debugOverlayLabel->raise();
+    }
+}
+
+void MainWindow::onDebugInfoReady(const QString& info) {
+    if (!m_debugOverlayLabel) {
+        return;
+    }
+
+    if (!m_debugOverlayEnabled || info.isEmpty()) {
+        m_debugOverlayLabel->clear();
+        m_debugOverlayLabel->hide();
+        return;
+    }
+
+    m_debugOverlayLabel->setText(info);
+    m_debugOverlayLabel->show();
+    m_debugOverlayLabel->raise();
 }
 
 int MainWindow::currentVideoFrame() const {

@@ -49,6 +49,26 @@ bool YoloAssist::isModelConfigured() const {
     return !m_modelPath.isEmpty();
 }
 
+QString YoloAssist::modelPath() const {
+    return m_modelPath;
+}
+
+cv::Size YoloAssist::lastInputSize() const {
+    return m_lastInputSize;
+}
+
+QStringList YoloAssist::lastOutputShapes() const {
+    return m_lastOutputShapes;
+}
+
+int YoloAssist::lastRawCandidateCount() const {
+    return m_lastRawCandidateCount;
+}
+
+int YoloAssist::lastNmsCount() const {
+    return m_lastNmsCount;
+}
+
 bool YoloAssist::ensureNetLoaded(QString* errorMessage) {
     if (m_netLoaded && !m_netDirty) {
         return true;
@@ -91,6 +111,9 @@ bool YoloAssist::ensureNetLoaded(QString* errorMessage) {
 
 bool YoloAssist::detect(const cv::Mat& frame, std::vector<Detection>& detections, QString* errorMessage) {
     detections.clear();
+    m_lastRawCandidateCount = 0;
+    m_lastNmsCount = 0;
+    m_lastOutputShapes.clear();
     if (frame.empty()) {
         if (errorMessage) {
             *errorMessage = "Input frame is empty";
@@ -104,6 +127,7 @@ bool YoloAssist::detect(const cv::Mat& frame, std::vector<Detection>& detections
         }
 
         const cv::Size modelInputSize = inferYoloInputSizeFromModelPath(m_modelPath);
+        m_lastInputSize = modelInputSize;
         const cv::Mat blob = cv::dnn::blobFromImage(frame, 1.0 / 255.0, modelInputSize, cv::Scalar(), true, false);
         m_net.setInput(blob);
 
@@ -119,8 +143,19 @@ bool YoloAssist::detect(const cv::Mat& frame, std::vector<Detection>& detections
                 }
                 shapes << QString("[%1]").arg(dims.join('x'));
             }
+            m_lastOutputShapes = shapes;
             qInfo() << "YOLO outputs:" << shapes.join(", ") << "input" << modelInputSize.width << "x" << modelInputSize.height;
             m_outputInfoLogged = true;
+        } else {
+            QStringList shapes;
+            for (const cv::Mat& output : outputs) {
+                QStringList dims;
+                for (int dimIndex = 0; dimIndex < output.dims; ++dimIndex) {
+                    dims << QString::number(output.size[dimIndex]);
+                }
+                shapes << QString("[%1]").arg(dims.join('x'));
+            }
+            m_lastOutputShapes = shapes;
         }
 
         std::vector<cv::Rect> boxes;
@@ -201,6 +236,7 @@ bool YoloAssist::detect(const cv::Mat& frame, std::vector<Detection>& detections
                 boxes.emplace_back(left, top, boxWidth, boxHeight);
                 confidences.push_back(confidence);
                 classIds.push_back(bestClassId);
+                ++m_lastRawCandidateCount;
             }
         };
 
@@ -237,6 +273,7 @@ bool YoloAssist::detect(const cv::Mat& frame, std::vector<Detection>& detections
 
         std::vector<int> indices;
         cv::dnn::NMSBoxes(boxes, confidences, 0.25f, 0.45f, indices);
+        m_lastNmsCount = static_cast<int>(indices.size());
 
         for (int index : indices) {
             Detection detection;
