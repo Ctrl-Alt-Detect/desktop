@@ -13,6 +13,7 @@
 #include <QAction>
 #include <QListWidget>
 #include <QKeyEvent>
+#include <QTextEdit>
 #include "cameraworker.h"
 #include "videolabel.h"
 
@@ -103,7 +104,7 @@ private:
     QListWidget* m_eventsList{nullptr};
     QPushButton* m_removeEventButton{nullptr};
     QPushButton* m_clearEventsButton{nullptr};
-    QLabel* m_debugOverlayLabel{nullptr};
+    QTextEdit* m_debugOverlayLabel{nullptr};
     QList<QAction*> m_trackerActions;
     QString m_yoloModelPath;
     QStringList m_yoloClassNames;

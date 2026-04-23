@@ -38,11 +38,12 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_videoLabel->setMinimumSize(320, 240);
     m_videoLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     m_videoLabel->setScaledContents(false);
-    m_debugOverlayLabel = new QLabel(m_videoLabel);
+    m_debugOverlayLabel = new QTextEdit(m_videoLabel);
     m_debugOverlayLabel->setObjectName("debugOverlay");
-    m_debugOverlayLabel->setWordWrap(true);
-    m_debugOverlayLabel->setAlignment(Qt::AlignLeft | Qt::AlignTop);
-    m_debugOverlayLabel->setMargin(8);
+    m_debugOverlayLabel->setReadOnly(true);
+    m_debugOverlayLabel->setLineWrapMode(QTextEdit::NoWrap);
+    m_debugOverlayLabel->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    m_debugOverlayLabel->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
     m_debugOverlayLabel->hide();
 
     auto* layout = new QVBoxLayout(central);
@@ -230,13 +231,38 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         "  border: 1px solid rgba(200, 220, 238, 0.45);"
         "  border-radius: 2px;"
         "}"
-        "QLabel#debugOverlay {"
+        "QTextEdit#debugOverlay {"
         "  background: rgba(5, 10, 16, 0.72);"
         "  color: #ecf6ff;"
         "  border: 1px solid rgba(170, 208, 235, 0.55);"
         "  border-radius: 4px;"
         "  font-family: Consolas, 'Courier New', monospace;"
         "  font-size: 9.5pt;"
+        "  padding: 4px;"
+        "}"
+        "QTextEdit#debugOverlay QScrollBar:vertical {"
+        "  background: rgba(10, 18, 28, 0.8);"
+        "  width: 12px;"
+        "  margin: 2px;"
+        "}"
+        "QTextEdit#debugOverlay QScrollBar::handle:vertical {"
+        "  background: rgba(150, 193, 224, 0.65);"
+        "  min-height: 20px;"
+        "  border-radius: 4px;"
+        "}"
+        "QTextEdit#debugOverlay QScrollBar:horizontal {"
+        "  background: rgba(10, 18, 28, 0.8);"
+        "  height: 12px;"
+        "  margin: 2px;"
+        "}"
+        "QTextEdit#debugOverlay QScrollBar::handle:horizontal {"
+        "  background: rgba(150, 193, 224, 0.65);"
+        "  min-width: 20px;"
+        "  border-radius: 4px;"
+        "}"
+        "QTextEdit#debugOverlay QScrollBar::add-line, QTextEdit#debugOverlay QScrollBar::sub-line {"
+        "  width: 0px;"
+        "  height: 0px;"
         "}"
         "QPushButton {"
         "  border-radius: 3px;"
@@ -1068,7 +1094,7 @@ void MainWindow::updateFrame(const QImage& frame) {
         const int overlayWidth = std::min(520, std::max(260, area.width() / 2));
         const int overlayHeight = std::min(320, std::max(120, area.height() / 3));
         m_debugOverlayLabel->setGeometry(area.left() + 12, area.top() + 12, overlayWidth, overlayHeight);
-        m_debugOverlayLabel->setVisible(m_debugOverlayEnabled && !m_debugOverlayLabel->text().isEmpty());
+        m_debugOverlayLabel->setVisible(m_debugOverlayEnabled && !m_debugOverlayLabel->toPlainText().isEmpty());
         m_debugOverlayLabel->raise();
     }
 }
@@ -1084,7 +1110,7 @@ void MainWindow::onDebugInfoReady(const QString& info) {
         return;
     }
 
-    m_debugOverlayLabel->setText(info);
+    m_debugOverlayLabel->setPlainText(info);
     m_debugOverlayLabel->show();
     m_debugOverlayLabel->raise();
 }
