@@ -62,6 +62,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     auto* cameraButton = new QPushButton("Camera", this);
     auto* openVideoButton = new QPushButton("Open Video", this);
     m_exportVideoButton = new QPushButton("Export Video", this);
+    m_exportYoloButton = new QPushButton("Export YOLO", this);
     m_playPauseButton = new QPushButton("Pause", this);
     m_resolutionTextLabel = new QLabel("Camera", this);
     m_resolutionCombo = new QComboBox(this);
@@ -86,6 +87,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     cameraButton->setProperty("variant", "primary");
     openVideoButton->setProperty("variant", "primary");
     m_exportVideoButton->setProperty("variant", "accent");
+    m_exportYoloButton->setProperty("variant", "accent");
     m_playPauseButton->setProperty("variant", "primary");
     m_loadYoloButton->setProperty("variant", "accent");
     m_removeEventButton->setProperty("variant", "flat");
@@ -128,6 +130,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     controlsTop->addWidget(cameraButton);
     controlsTop->addWidget(openVideoButton);
     controlsTop->addWidget(m_exportVideoButton);
+    controlsTop->addWidget(m_exportYoloButton);
     controlsTop->addWidget(m_playPauseButton);
     controlsTop->addSpacing(8);
     controlsTop->addWidget(m_resolutionTextLabel);
@@ -362,6 +365,7 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     connect(cameraButton, &QPushButton::clicked, this, &MainWindow::onCameraClicked);
     connect(openVideoButton, &QPushButton::clicked, this, &MainWindow::onOpenVideoClicked);
     connect(m_exportVideoButton, &QPushButton::clicked, this, &MainWindow::onExportVideoClicked);
+    connect(m_exportYoloButton, &QPushButton::clicked, this, &MainWindow::onExportYoloClicked);
     connect(m_playPauseButton, &QPushButton::clicked, this, &MainWindow::onPlayPauseClicked);
     connect(m_resolutionCombo, QOverload<int>::of(&QComboBox::activated), this, &MainWindow::onCameraResolutionChanged);
     connect(m_speedSlider, &QSlider::valueChanged, this, &MainWindow::onSpeedChanged);
@@ -744,6 +748,278 @@ void MainWindow::onExportVideoClicked() {
 
     progress.setValue(std::max(totalFrames, frameIndex));
     QMessageBox::information(this, "Export Video", "Export complete:\n" + outputPath);
+}
+
+void MainWindow::onExportYoloClicked() {
+    if (!m_isVideoMode || m_currentVideoPath.isEmpty()) {
+        QMessageBox::information(this, "Export YOLO", "Open a video file first to export YOLO annotations.");
+        return;
+    }
+
+    const QFileInfo inputInfo(m_currentVideoPath);
+    const QString defaultDir = inputInfo.absolutePath();
+    const QString outDir = QFileDialog::getExistingDirectory(this, "Select output folder for YOLO annotations", defaultDir);
+    if (outDir.isEmpty()) {
+        return;
+    }
+
+    const QString labelsDir = outDir + "/" + inputInfo.completeBaseName() + "_yolo_labels";
+    QDir dir;
+    if (!dir.mkpath(labelsDir)) {
+        QMessageBox::warning(this, "Export YOLO", "Failed to create labels output directory: " + labelsDir);
+        return;
+    }
+
+    cv::VideoCapture cap(m_currentVideoPath.toStdString());
+    if (!cap.isOpened()) {
+        QMessageBox::warning(this, "Export YOLO", "Failed to open the source video for export.");
+        return;
+    }
+
+    const int frameWidth = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_WIDTH));
+    const int frameHeight = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_HEIGHT));
+    if (frameWidth <= 0 || frameHeight <= 0) {
+        QMessageBox::warning(this, "Export YOLO", "Invalid source video dimensions.");
+        return;
+    }
+
+    const int totalFrames = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_COUNT));
+    QProgressDialog progress("Exporting YOLO labels...", "Cancel", 0, std::max(0, totalFrames), this);
+    progress.setWindowModality(Qt::WindowModal);
+    progress.setMinimumDuration(0);
+
+    const QStringList selectedTypes = selectedTrackerTypes();
+    auto createTrackerByName = [](const QString& trackerName) -> cv::Ptr<cv::Tracker> {
+        const QString name = trackerName.trimmed();
+        if (name.compare("CSRT", Qt::CaseInsensitive) == 0) return cv::TrackerCSRT::create();
+        if (name.compare("KCF", Qt::CaseInsensitive) == 0) return cv::TrackerKCF::create();
+        if (name.compare("MIL", Qt::CaseInsensitive) == 0) return cv::TrackerMIL::create();
+        if (name.compare("GOTURN", Qt::CaseInsensitive) == 0) return cv::TrackerGOTURN::create();
+        if (name.compare("DaSiamRPN", Qt::CaseInsensitive) == 0) return cv::TrackerDaSiamRPN::create();
+        if (name.compare("Nano", Qt::CaseInsensitive) == 0) return cv::TrackerNano::create();
+        if (name.compare("Vit", Qt::CaseInsensitive) == 0) return cv::TrackerVit::create();
+        return {};
+    };
+
+    auto buildTrackers = [&](const QStringList& selectedTypes) {
+        std::vector<cv::Ptr<cv::Tracker>> trackers;
+        for (const QString& type : selectedTypes) {
+            try {
+                cv::Ptr<cv::Tracker> tracker = createTrackerByName(type);
+                if (tracker) trackers.push_back(tracker);
+            } catch (const cv::Exception& ex) {
+                qWarning() << "Failed to create tracker" << type << ":" << ex.what();
+            }
+        }
+        if (trackers.empty()) trackers.push_back(cv::TrackerCSRT::create());
+        return trackers;
+    };
+
+    std::vector<cv::Ptr<cv::Tracker>> trackers;
+    bool trackingActive = false;
+    bool trackingInitialized = false;
+    cv::Rect2d trackerBox;
+    bool exportAiAssistEnabled = (m_aiEnabledCheckBox && m_aiEnabledCheckBox->isChecked() && !m_yoloModelPath.isEmpty());
+    const int aiIntervalFrames = std::max(1, m_aiIntervalCombo ? m_aiIntervalCombo->currentData().toInt() : 30);
+    int targetClassId = -1;
+    bool targetClassPending = false;
+    YoloAssist exportYoloAssist;
+    if (exportAiAssistEnabled) {
+        exportYoloAssist.setModel(m_yoloModelPath, m_yoloClassNames);
+    }
+
+    auto applyTrackerBoxAndReinitialize = [&](const cv::Rect2d& box, const cv::Mat& currentFrame) {
+        cv::Rect initRect = static_cast<cv::Rect>(box);
+        initRect.x = std::max(0, std::min(initRect.x, std::max(0, currentFrame.cols - 1)));
+        initRect.y = std::max(0, std::min(initRect.y, std::max(0, currentFrame.rows - 1)));
+        initRect.width = std::max(1, std::min(initRect.width, std::max(1, currentFrame.cols - initRect.x)));
+        initRect.height = std::max(1, std::min(initRect.height, std::max(1, currentFrame.rows - initRect.y)));
+
+        trackerBox = cv::Rect2d(initRect.x, initRect.y, initRect.width, initRect.height);
+        trackers = buildTrackers(selectedTypes);
+        trackingInitialized = false;
+
+        int initCount = 0;
+        for (auto& tracker : trackers) {
+            if (!tracker) continue;
+            try {
+                tracker->init(currentFrame, initRect);
+                ++initCount;
+            } catch (const cv::Exception& ex) {
+                qWarning() << "Export (YOLO) tracker reinit failed:" << ex.what();
+            }
+        }
+
+        if (initCount == 0) {
+            try {
+                trackers.clear();
+                cv::Ptr<cv::Tracker> fallback = cv::TrackerCSRT::create();
+                fallback->init(currentFrame, initRect);
+                trackers.push_back(fallback);
+                initCount = 1;
+            } catch (const cv::Exception& ex) {
+                qWarning() << "Export (YOLO) fallback tracker reinit failed:" << ex.what();
+            }
+        }
+
+        trackingInitialized = (initCount > 0);
+    };
+
+    cv::Mat frame;
+    int frameIndex = 0;
+    bool canceled = false;
+    while (cap.read(frame)) {
+        if (progress.wasCanceled()) {
+            canceled = true;
+            break;
+        }
+
+        const auto eventIt = m_trackingTimeline.constFind(frameIndex);
+        if (eventIt != m_trackingTimeline.constEnd()) {
+            const TrackingEvent& event = eventIt.value();
+            if (event.type == TrackingEventType::SetRoi) {
+                trackerBox = cv::Rect2d(event.roi.x(), event.roi.y(), event.roi.width(), event.roi.height());
+                trackers = buildTrackers(selectedTypes);
+                trackingActive = true;
+                trackingInitialized = false;
+                if (exportAiAssistEnabled) {
+                    targetClassId = -1;
+                    targetClassPending = true;
+                }
+            } else {
+                trackers.clear();
+                trackingActive = false;
+                trackingInitialized = false;
+                targetClassId = -1;
+                targetClassPending = false;
+            }
+        }
+
+        if (trackingActive && !trackers.empty()) {
+            if (!trackingInitialized) {
+                const cv::Rect initRect = static_cast<cv::Rect>(trackerBox);
+                int initCount = 0;
+                for (auto& tracker : trackers) {
+                    if (!tracker) continue;
+                    try {
+                        tracker->init(frame, initRect);
+                        ++initCount;
+                    } catch (const cv::Exception& ex) {
+                        qWarning() << "Export (YOLO) tracker init failed:" << ex.what();
+                    }
+                }
+                if (initCount == 0) {
+                    try {
+                        trackers.clear();
+                        cv::Ptr<cv::Tracker> fallback = cv::TrackerCSRT::create();
+                        fallback->init(frame, initRect);
+                        trackers.push_back(fallback);
+                        initCount = 1;
+                    } catch (const cv::Exception& ex) {
+                        qWarning() << "Export (YOLO) fallback tracker init failed:" << ex.what();
+                    }
+                }
+                trackingInitialized = (initCount > 0);
+            } else {
+                double sumX = 0.0, sumY = 0.0, sumW = 0.0, sumH = 0.0;
+                int successCount = 0;
+                for (auto& tracker : trackers) {
+                    if (!tracker) continue;
+                    cv::Rect currentBox = static_cast<cv::Rect>(trackerBox);
+                    bool updated = false;
+                    try {
+                        updated = tracker->update(frame, currentBox);
+                    } catch (const cv::Exception& ex) {
+                        qWarning() << "Export (YOLO) tracker update failed:" << ex.what();
+                    }
+                    if (updated && currentBox.width > 0 && currentBox.height > 0) {
+                        sumX += currentBox.x;
+                        sumY += currentBox.y;
+                        sumW += currentBox.width;
+                        sumH += currentBox.height;
+                        ++successCount;
+                    }
+                }
+                if (successCount > 0) {
+                    trackerBox = cv::Rect2d(sumX / successCount, sumY / successCount, sumW / successCount, sumH / successCount);
+                }
+            }
+
+            const bool runAiPass = exportAiAssistEnabled && (targetClassPending || (aiIntervalFrames > 0 && frameIndex % aiIntervalFrames == 0));
+            if (runAiPass) {
+                std::vector<YoloAssist::Detection> detections;
+                QString yoloError;
+                if (exportYoloAssist.detect(frame, detections, &yoloError) && !detections.empty()) {
+                    YoloAssist::Detection selectedDetection;
+                    bool foundDetection = false;
+                    if (targetClassPending) {
+                        foundDetection = YoloAssist::chooseDetectionForSelection(detections, trackerBox, selectedDetection);
+                    }
+                    if (!foundDetection && targetClassId >= 0) {
+                        std::vector<YoloAssist::Detection> matchingDetections;
+                        for (const YoloAssist::Detection& detection : detections) {
+                            if (detection.classId == targetClassId) matchingDetections.push_back(detection);
+                        }
+                        if (!matchingDetections.empty()) {
+                            foundDetection = YoloAssist::chooseDetectionForCorrection(matchingDetections, trackerBox, selectedDetection);
+                        }
+                    }
+                    if (!foundDetection) {
+                        foundDetection = YoloAssist::chooseDetectionForCorrection(detections, trackerBox, selectedDetection);
+                    }
+                    if (foundDetection) {
+                        applyTrackerBoxAndReinitialize(
+                            cv::Rect2d(selectedDetection.box.x, selectedDetection.box.y, selectedDetection.box.width, selectedDetection.box.height),
+                            frame);
+                        if (targetClassPending) {
+                            targetClassId = selectedDetection.classId;
+                            targetClassPending = false;
+                        }
+                    }
+                } else if (!yoloError.isEmpty()) {
+                    qWarning() << "Export (YOLO) inference failed; disabling export AI assist:" << yoloError;
+                    exportAiAssistEnabled = false;
+                    targetClassPending = false;
+                }
+            }
+        }
+
+        // Write YOLO label file for this frame (one file per frame). If trackingInitialized, write the consensus box.
+        const QString labelFile = QString("%1/frame_%2.txt").arg(labelsDir).arg(frameIndex, 6, 10, QChar('0'));
+        QFile file(labelFile);
+        if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QTextStream out(&file);
+            if (trackingInitialized) {
+                // Normalize and write: class_id x_center y_center width height
+                const double x = trackerBox.x;
+                const double y = trackerBox.y;
+                const double w = trackerBox.width;
+                const double h = trackerBox.height;
+                const double xCenter = (x + w / 2.0) / static_cast<double>(frameWidth);
+                const double yCenter = (y + h / 2.0) / static_cast<double>(frameHeight);
+                const double wN = w / static_cast<double>(frameWidth);
+                const double hN = h / static_cast<double>(frameHeight);
+                const int classIdToWrite = (targetClassId >= 0) ? targetClassId : 0;
+                out.setRealNumberPrecision(6);
+                out << classIdToWrite << " " << xCenter << " " << yCenter << " " << wN << " " << hN << "\n";
+            }
+            file.close();
+        }
+
+        ++frameIndex;
+        progress.setValue(frameIndex);
+        QCoreApplication::processEvents();
+    }
+
+    cap.release();
+
+    if (canceled) {
+        QMessageBox::information(this, "Export YOLO", "Export canceled.");
+        return;
+    }
+
+    progress.setValue(std::max(totalFrames, frameIndex));
+    QMessageBox::information(this, "Export YOLO", "YOLO labels exported to:\n" + labelsDir);
 }
 
 void MainWindow::onLoadYoloModelClicked() {

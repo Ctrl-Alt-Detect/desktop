@@ -39,6 +39,7 @@ private slots:
     void onTrackerReset();
     void onCameraResolutionChanged(int index);
     void onExportVideoClicked();
+    void onExportYoloClicked();
     void onRemoveEventClicked();
     void onClearEventsClicked();
     void onEventActivated(QListWidgetItem* item);
@@ -86,6 +87,7 @@ private:
     CameraWorker* m_camera{nullptr};
     QPushButton* m_playPauseButton{nullptr};
     QPushButton* m_exportVideoButton{nullptr};
+    QPushButton* m_exportYoloButton{nullptr};
     QLabel* m_resolutionTextLabel{nullptr};
     QComboBox* m_resolutionCombo{nullptr};
     QLabel* m_seekTextLabel{nullptr};
