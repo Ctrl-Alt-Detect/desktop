@@ -19,6 +19,7 @@
 #include <QFile>
 #include <QFrame>
 #include <QFont>
+#include <QTextCursor>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle("Drone Tracker");
@@ -1383,10 +1384,31 @@ void MainWindow::onDebugInfoReady(const QString& info) {
     if (!m_debugOverlayEnabled || info.isEmpty()) {
         m_debugOverlayLabel->clear();
         m_debugOverlayLabel->hide();
+        m_debugScrollPosition = 0;
         return;
     }
 
-    m_debugOverlayLabel->setPlainText(info);
+    // Save scroll position and cursor position
+    const int scrollPos = m_debugOverlayLabel->verticalScrollBar()->value();
+    
+    // Block signals to prevent automatic scrolling
+    const bool wasBlocked = m_debugOverlayLabel->blockSignals(true);
+    m_debugOverlayLabel->verticalScrollBar()->blockSignals(true);
+    
+    // Use lower-level document cursor operations instead of setPlainText
+    QTextCursor cursor(m_debugOverlayLabel->document());
+    cursor.beginEditBlock();
+    cursor.select(QTextCursor::Document);
+    cursor.insertText(info);
+    cursor.endEditBlock();
+    
+    // Restore signal blocking
+    m_debugOverlayLabel->blockSignals(wasBlocked);
+    m_debugOverlayLabel->verticalScrollBar()->blockSignals(false);
+    
+    // Restore scroll position
+    m_debugOverlayLabel->verticalScrollBar()->setValue(scrollPos);
+    
     m_debugOverlayLabel->show();
     m_debugOverlayLabel->raise();
 }

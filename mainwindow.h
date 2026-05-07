@@ -14,6 +14,7 @@
 #include <QListWidget>
 #include <QKeyEvent>
 #include <QTextEdit>
+#include <QScrollBar>
 #include "cameraworker.h"
 #include "videolabel.h"
 
@@ -118,4 +119,5 @@ private:
     bool m_isVideoMode{false};
     bool m_isPaused{false};
     bool m_debugOverlayEnabled{false};
+    int m_debugScrollPosition{0};
 };
