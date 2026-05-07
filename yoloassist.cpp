@@ -32,6 +32,21 @@ cv::Size inferYoloInputSizeFromModelPath(const QString& modelPath) {
 bool isLikelyNormalizedBox(float cx, float cy, float width, float height) {
     return cx >= 0.0f && cy >= 0.0f && width > 0.0f && height > 0.0f && cx <= 1.5f && cy <= 1.5f && width <= 1.5f && height <= 1.5f;
 }
+
+double rectDistance(const cv::Rect2d& lhs, const cv::Rect2d& rhs) {
+    const double lhsLeft = lhs.x;
+    const double lhsTop = lhs.y;
+    const double lhsRight = lhs.x + lhs.width;
+    const double lhsBottom = lhs.y + lhs.height;
+    const double rhsLeft = rhs.x;
+    const double rhsTop = rhs.y;
+    const double rhsRight = rhs.x + rhs.width;
+    const double rhsBottom = rhs.y + rhs.height;
+
+    const double horizontalGap = std::max(0.0, std::max(lhsLeft - rhsRight, rhsLeft - lhsRight));
+    const double verticalGap = std::max(0.0, std::max(lhsTop - rhsBottom, rhsTop - lhsBottom));
+    return std::sqrt(horizontalGap * horizontalGap + verticalGap * verticalGap);
+}
 }
 
 void YoloAssist::setModel(const QString& modelPath, const QStringList& classNames) {
@@ -317,7 +332,7 @@ bool YoloAssist::chooseDetectionForSelection(const std::vector<Detection>& detec
     bool found = false;
 
     for (const Detection& detection : detections) {
-        const double score = rectIntersectionOverUnion(referenceBox, detection.box) + static_cast<double>(detection.confidence) * 0.1;
+        const double score = -rectDistance(referenceBox, detection.box);
         if (!found || score > bestScore) {
             bestScore = score;
             selectedDetection = detection;
@@ -333,8 +348,7 @@ bool YoloAssist::chooseDetectionForCorrection(const std::vector<Detection>& dete
     bool found = false;
 
     for (const Detection& detection : detections) {
-        const double iou = rectIntersectionOverUnion(referenceBox, detection.box);
-        const double score = iou * 0.7 + static_cast<double>(detection.confidence) * 0.3;
+        const double score = -rectDistance(referenceBox, detection.box);
         if (!found || score > bestScore) {
             bestScore = score;
             selectedDetection = detection;
