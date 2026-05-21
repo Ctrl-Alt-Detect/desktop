@@ -17,6 +17,11 @@
 #include <QScrollBar>
 #include "cameraworker.h"
 #include "videolabel.h"
+#include "timeline_repository.h"
+#include "application_settings.h"
+#include "video_export_engine.h"
+#include "yolo_export_engine.h"
+#include "debug_overlay_renderer.h"
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -54,16 +59,6 @@ protected:
     void keyPressEvent(QKeyEvent* event) override;
 
 private:
-    enum class TrackingEventType {
-        SetRoi,
-        Stop
-    };
-
-    struct TrackingEvent {
-        TrackingEventType type{TrackingEventType::Stop};
-        QRect roi;
-    };
-
     int currentVideoFrame() const;
     void applyTrackingEventForFrame(int frameIndex);
     void updateSeekTimeLabel(int currentFrame);
@@ -107,17 +102,16 @@ private:
     QListWidget* m_eventsList{nullptr};
     QPushButton* m_removeEventButton{nullptr};
     QPushButton* m_clearEventsButton{nullptr};
-    QTextEdit* m_debugOverlayLabel{nullptr};
+    DebugOverlayRenderer* m_debugOverlay{nullptr};
     QList<QAction*> m_trackerActions;
     QString m_yoloModelPath;
     QStringList m_yoloClassNames;
-    QMap<int, TrackingEvent> m_trackingTimeline;
+    TimelineRepository* m_timeline{nullptr};
+    ApplicationSettings* m_settings{nullptr};
     int m_lastAppliedTimelineFrame{-1};
     int m_totalVideoFrames{0};
     double m_videoFps{30.0};
     QString m_currentVideoPath;
     bool m_isVideoMode{false};
     bool m_isPaused{false};
-    bool m_debugOverlayEnabled{false};
-    int m_debugScrollPosition{0};
 };

@@ -11,6 +11,7 @@
 #include <opencv2/dnn.hpp>
 #include <opencv2/tracking.hpp>
 #include "yoloassist.h"
+#include "tracking_manager.h"
 
 class CameraWorker : public QObject {
 Q_OBJECT
@@ -49,8 +50,6 @@ public slots:
     void resetTracker();
 
 private:
-    cv::Ptr<cv::Tracker> createTrackerByName(const QString& trackerType) const;
-    void rebuildTrackersLocked();
     void applyTrackerBoxLocked(const cv::Rect2d& box, const cv::Mat& frame);
 
     QString m_source;
@@ -63,11 +62,7 @@ private:
     std::atomic<double> m_playbackSpeed{1.0};
 
     std::mutex m_trackerMutex;
-    QStringList m_trackerTypes{"CSRT"};
-    std::vector<cv::Ptr<cv::Tracker>> m_trackers;
-    bool m_trackerActive{false};
-    bool m_trackerInitialized{false};
-    cv::Rect2d m_trackerBox;
+    TrackingManager m_tracker;
 
     std::mutex m_yoloMutex;
     QString m_yoloModelPath;

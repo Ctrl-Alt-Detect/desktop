@@ -7,5 +7,18 @@ set(CMAKE_AUTOMOC ON)
 find_package(Qt5 COMPONENTS Core Widgets REQUIRED)
 find_package(OpenCV REQUIRED)
 
-add_executable(${PROJECT_NAME} main.cpp cameraworker.cpp cameraworker.h mainwindow.cpp mainwindow.h videolabel.cpp videolabel.h yoloassist.cpp yoloassist.h resources/icon.rc)
+add_executable(${PROJECT_NAME} 
+    main.cpp 
+    cameraworker.cpp cameraworker.h 
+    mainwindow.cpp mainwindow.h 
+    videolabel.cpp videolabel.h 
+    yoloassist.cpp yoloassist.h 
+    tracking_manager.cpp tracking_manager.h
+    timeline_repository.cpp timeline_repository.h
+    application_settings.cpp application_settings.h
+    video_export_engine.cpp video_export_engine.h
+    yolo_export_engine.cpp yolo_export_engine.h
+    debug_overlay_renderer.cpp debug_overlay_renderer.h
+    resources/icon.rc
+)
 target_link_libraries(${PROJECT_NAME} Qt5::Core Qt5::Widgets ${OpenCV_LIBS})
