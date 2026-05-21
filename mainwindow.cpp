@@ -764,8 +764,14 @@ void MainWindow::onExportYoloClicked() {
         return;
     }
 
-    const QString labelsDir = outDir + "/" + inputInfo.completeBaseName() + "_yolo_labels";
+    const QString baseDir = outDir + "/" + inputInfo.completeBaseName() + "_yolo";
+    const QString imagesDir = baseDir + "/images";
+    const QString labelsDir = baseDir + "/labels";
     QDir dir;
+    if (!dir.mkpath(imagesDir)) {
+        QMessageBox::warning(this, "Export YOLO", "Failed to create images output directory: " + imagesDir);
+        return;
+    }
     if (!dir.mkpath(labelsDir)) {
         QMessageBox::warning(this, "Export YOLO", "Failed to create labels output directory: " + labelsDir);
         return;
@@ -985,6 +991,14 @@ void MainWindow::onExportYoloClicked() {
             }
         }
 
+        // Write frame as image for this frame
+        const QString imageFile = QString("%1/frame_%2.png").arg(imagesDir).arg(frameIndex, 6, 10, QChar('0'));
+        try {
+            cv::imwrite(imageFile.toStdString(), frame);
+        } catch (const cv::Exception& ex) {
+            qWarning() << "Failed to save frame image:" << ex.what();
+        }
+
         // Write YOLO label file for this frame (one file per frame). If trackingInitialized, write the consensus box.
         const QString labelFile = QString("%1/frame_%2.txt").arg(labelsDir).arg(frameIndex, 6, 10, QChar('0'));
         QFile file(labelFile);
@@ -1020,7 +1034,7 @@ void MainWindow::onExportYoloClicked() {
     }
 
     progress.setValue(std::max(totalFrames, frameIndex));
-    QMessageBox::information(this, "Export YOLO", "YOLO labels exported to:\n" + labelsDir);
+    QMessageBox::information(this, "Export YOLO", "YOLO data exported to:\n" + baseDir);
 }
 
 void MainWindow::onLoadYoloModelClicked() {
