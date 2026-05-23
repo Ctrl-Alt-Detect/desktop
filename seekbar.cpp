@@ -166,6 +166,10 @@ int SeekBar::maximum() const {
     return m_slider->maximum();
 }
 
+bool SeekBar::isSeeking() const {
+    return m_slider && m_slider->isSliderDown();
+}
+
 void SeekBar::setPlayButtonText(const QString& text) {
     m_playButton->setText(text);
 }

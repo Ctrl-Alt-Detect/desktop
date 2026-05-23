@@ -996,7 +996,9 @@ void MainWindow::onVideoInfo(int totalFrames, double fps) {
 }
 
 void MainWindow::onVideoPosition(int frameIndex) {
-    m_seekBar->setValue(frameIndex);
+    if (!m_seekBar->isSeeking()) {
+        m_seekBar->setValue(frameIndex);
+    }
 
     applyTrackingEventForFrame(frameIndex);
 }

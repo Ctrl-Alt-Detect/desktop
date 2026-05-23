@@ -44,6 +44,7 @@ public:
     void setValue(int value);
     int value() const;
     int maximum() const;
+    bool isSeeking() const;
 
     // Play button methods
     void setPlayButtonText(const QString& text);
