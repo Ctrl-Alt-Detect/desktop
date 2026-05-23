@@ -23,11 +23,18 @@
 #include <QFrame>
 #include <QFont>
 #include <QTextCursor>
+#include <QDockWidget>
+#include <QToolBar>
+#include <QSettings>
+#include <QApplication>
+#include <QScreen>
+#include <QToolTip>
+#include <QCursor>
 
 MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     setWindowTitle("Drone Tracker");
     resize(1240, 760);
-    setMinimumSize(1024, 640);
+    setMinimumSize(1290, 580);  // Account for all docks: video(640) + events(350) + settings(300) + spacing
 
     QFont uiFont("Segoe UI", 11);
     setFont(uiFont);
@@ -36,36 +43,44 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_timeline = new TimelineRepository(this);
     m_settings = new ApplicationSettings(this);
 
-    auto* central = new QWidget(this);
-    central->setObjectName("appRoot");
-    setCentralWidget(central);
-
+    // Create central video widget - maximized by default
     m_videoLabel = new VideoLabel(this);
     m_videoLabel->setObjectName("videoSurface");
     m_videoLabel->setAlignment(Qt::AlignCenter);
-    m_videoLabel->setMinimumSize(320, 240);
+    m_videoLabel->setMinimumSize(640, 480);
     m_videoLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
     m_videoLabel->setScaledContents(false);
     m_debugOverlay = new DebugOverlayRenderer(m_videoLabel);
+    setCentralWidget(m_videoLabel);
 
-    auto* layout = new QVBoxLayout(central);
-    layout->setContentsMargins(16, 16, 16, 16);
-    layout->setSpacing(12);
+    // Create all widgets first
+    createWidgetComponents();
 
-    auto* controlsCard = new QFrame(this);
-    controlsCard->setObjectName("controlsCard");
-    auto* controls = new QVBoxLayout;
-    controls->setContentsMargins(12, 10, 12, 10);
-    controls->setSpacing(8);
-    auto* controlsTop = new QHBoxLayout;
-    controlsTop->setSpacing(8);
-    auto* controlsBottom = new QHBoxLayout;
-    controlsBottom->setSpacing(8);
-    auto* cameraButton = new QPushButton("Camera", this);
-    auto* openVideoButton = new QPushButton("Open Video", this);
-    m_exportVideoButton = new QPushButton("Export Video", this);
-    m_exportYoloButton = new QPushButton("Export YOLO", this);
-    m_playPauseButton = new QPushButton("Pause", this);
+    // Setup UI components in proper order
+    setupMenuBar();
+    setupDockWidgets();
+    setupPlaybackToolbar();
+
+    // Apply styling
+    applyStylesheet();
+
+    // Create connections
+    createConnections();
+
+    // Initialize state
+    setVideoControlsEnabled(false);
+    refreshYoloStatusLabel();
+    applyAiSettingsToWorker();
+
+    // Restore window state
+    restoreWindowState();
+
+    startSource(buildCameraPipeline(), true);
+}
+
+void MainWindow::createWidgetComponents() {
+    // Playback buttons and labels
+    m_playPauseButton = new QPushButton("Play", this);
     m_resolutionTextLabel = new QLabel("Camera", this);
     m_resolutionCombo = new QComboBox(this);
     m_seekTextLabel = new QLabel("Seek", this);
@@ -79,86 +94,46 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_aiIntervalCombo = new QComboBox(this);
     m_yoloStatusLabel = new QLabel("ONNX: not loaded", this);
     m_yoloStatusLabel->setObjectName("yoloStatusLabel");
-    m_eventsTextLabel = new QLabel("Events", this);
+
+    // Sliders and widgets
     m_seekSlider = new QSlider(Qt::Horizontal, this);
     m_speedSlider = new QSlider(Qt::Horizontal, this);
     m_eventsList = new QListWidget(this);
-    m_removeEventButton = new QPushButton("Remove", this);
-    m_clearEventsButton = new QPushButton("Clear", this);
+    m_removeEventButton = new QPushButton("Remove Event", this);
+    m_clearEventsButton = new QPushButton("Clear All", this);
 
-    cameraButton->setProperty("variant", "primary");
-    openVideoButton->setProperty("variant", "primary");
-    m_exportVideoButton->setProperty("variant", "accent");
-    m_exportYoloButton->setProperty("variant", "accent");
+    // Button style variants
     m_playPauseButton->setProperty("variant", "primary");
     m_loadYoloButton->setProperty("variant", "accent");
     m_removeEventButton->setProperty("variant", "flat");
     m_clearEventsButton->setProperty("variant", "flat");
 
+    // Label captions
     m_seekTextLabel->setProperty("caption", true);
     m_speedTextLabel->setProperty("caption", true);
     m_trackerTextLabel->setProperty("caption", true);
-    m_eventsTextLabel->setProperty("caption", true);
     m_resolutionTextLabel->setProperty("caption", true);
 
+    // Configure seekSlider
     m_seekSlider->setRange(0, 0);
     m_seekSlider->setMinimumWidth(280);
     m_seekSlider->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_seekTimeLabel->setMinimumWidth(180);
+
+    // Configure speedSlider
     m_speedSlider->setRange(25, 300);
     m_speedSlider->setValue(100);
     m_speedSlider->setMinimumWidth(170);
+
+    // Configure resolution combo
     m_resolutionCombo->addItem("640 x 480", QSize(640, 480));
     m_resolutionCombo->addItem("1280 x 720", QSize(1280, 720));
     m_resolutionCombo->addItem("1920 x 1080", QSize(1920, 1080));
     m_resolutionCombo->setCurrentIndex(0);
     m_resolutionCombo->setFixedWidth(138);
+
+    // Configure tracker button
     m_trackerPickerButton->setMinimumWidth(132);
-    m_loadYoloButton->setMinimumWidth(112);
-    m_aiEnabledCheckBox->setChecked(false);
-    m_aiIntervalCombo->addItem("5 frames", 5);
-    m_aiIntervalCombo->addItem("10 frames", 10);
-    m_aiIntervalCombo->addItem("20 frames", 20);
-    m_aiIntervalCombo->addItem("30 frames", 30);
-    m_aiIntervalCombo->addItem("60 frames", 60);
-    m_aiIntervalCombo->setCurrentIndex(3);
-    m_aiIntervalCombo->setFixedWidth(118);
-    m_yoloStatusLabel->setMinimumWidth(195);
-    m_eventsList->setMinimumWidth(220);
-    m_eventsList->setMaximumWidth(260);
-    m_removeEventButton->setFixedWidth(92);
-    m_clearEventsButton->setFixedWidth(92);
-
-    controlsTop->addWidget(cameraButton);
-    controlsTop->addWidget(openVideoButton);
-    controlsTop->addWidget(m_exportVideoButton);
-    controlsTop->addWidget(m_exportYoloButton);
-    controlsTop->addWidget(m_playPauseButton);
-    controlsTop->addSpacing(8);
-    controlsTop->addWidget(m_resolutionTextLabel);
-    controlsTop->addWidget(m_resolutionCombo);
-    controlsTop->addSpacing(8);
-    controlsTop->addWidget(m_seekTextLabel);
-    controlsTop->addWidget(m_seekSlider, 1);
-    controlsTop->addWidget(m_seekTimeLabel);
-
-    controlsBottom->addWidget(m_speedTextLabel);
-    controlsBottom->addWidget(m_speedSlider);
-    controlsBottom->addWidget(m_speedValueLabel);
-    controlsBottom->addSpacing(16);
-    controlsBottom->addWidget(m_trackerTextLabel);
-    controlsBottom->addWidget(m_trackerPickerButton);
-    controlsBottom->addWidget(m_loadYoloButton);
-    controlsBottom->addSpacing(8);
-    controlsBottom->addWidget(m_aiEnabledCheckBox);
-    controlsBottom->addWidget(m_aiIntervalCombo);
-    controlsBottom->addWidget(m_yoloStatusLabel);
-    controlsBottom->addStretch();
-
-    controls->addLayout(controlsTop);
-    controls->addLayout(controlsBottom);
-    controlsCard->setLayout(controls);
-
     auto* trackerMenu = new QMenu(m_trackerPickerButton);
     const QStringList availableTrackers{
         "CSRT", "KCF", "MIL", "GOTURN", "DaSiamRPN", "Nano", "Vit"
@@ -173,48 +148,251 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
     m_trackerPickerButton->setMenu(trackerMenu);
     syncTrackerButtonText();
 
-    layout->addWidget(controlsCard, 0);
+    // Configure YOLO button
+    m_loadYoloButton->setMinimumWidth(112);
 
-    auto* contentLayout = new QHBoxLayout;
-    contentLayout->setSpacing(12);
+    // Configure AI checkbox and combo - DISABLED until model loads
+    m_aiEnabledCheckBox->setChecked(false);
+    m_aiEnabledCheckBox->setEnabled(false);  // Disabled until model loaded
+    m_aiIntervalCombo->addItem("5 frames", 5);
+    m_aiIntervalCombo->addItem("10 frames", 10);
+    m_aiIntervalCombo->addItem("20 frames", 20);
+    m_aiIntervalCombo->addItem("30 frames", 30);
+    m_aiIntervalCombo->addItem("60 frames", 60);
+    m_aiIntervalCombo->setCurrentIndex(3);
+    m_aiIntervalCombo->setFixedWidth(118);
+    m_aiIntervalCombo->setEnabled(false);  // Disabled until model loaded
 
-    auto* eventsCard = new QFrame(this);
-    eventsCard->setObjectName("eventsCard");
-    auto* eventsPanel = new QVBoxLayout(eventsCard);
-    eventsPanel->setContentsMargins(12, 12, 12, 12);
-    eventsPanel->setSpacing(8);
-    eventsCard->setMinimumWidth(250);
-    eventsCard->setMaximumWidth(320);
+    // Configure events list
+    m_eventsList->setMinimumWidth(320);
+    m_removeEventButton->setMinimumHeight(36);
+    m_clearEventsButton->setMinimumHeight(36);
+    m_yoloStatusLabel->setMinimumWidth(195);
+}
 
-    eventsPanel->addWidget(m_eventsTextLabel, 0);
-    eventsPanel->addWidget(m_eventsList, 1);
+void MainWindow::setupMenuBar() {
+    m_menuBar = menuBar();
 
-    auto* eventsButtons = new QHBoxLayout;
-    eventsButtons->addWidget(m_removeEventButton);
-    eventsButtons->addWidget(m_clearEventsButton);
-    eventsButtons->addStretch();
-    eventsPanel->addLayout(eventsButtons, 0);
+    // File Menu
+    m_fileMenu = m_menuBar->addMenu("&File");
+    m_actionOpenVideo = m_fileMenu->addAction("&Open Video");
+    m_actionOpenVideo->setShortcut(Qt::CTRL | Qt::Key_O);
+    connect(m_actionOpenVideo, &QAction::triggered, this, &MainWindow::onMenuOpenVideo);
 
-    auto* videoCard = new QFrame(this);
-    videoCard->setObjectName("videoCard");
-    auto* videoLayout = new QVBoxLayout(videoCard);
-    videoLayout->setContentsMargins(12, 12, 12, 12);
-    videoLayout->setSpacing(6);
-    videoLayout->addWidget(m_videoLabel, 1);
+    m_actionOpenCamera = m_fileMenu->addAction("Open &Camera");
+    m_actionOpenCamera->setShortcut(Qt::CTRL | Qt::SHIFT | Qt::Key_O);
+    connect(m_actionOpenCamera, &QAction::triggered, this, &MainWindow::onMenuOpenCamera);
 
-    contentLayout->addWidget(eventsCard, 0);
-    contentLayout->addWidget(videoCard, 1);
-    layout->addLayout(contentLayout, 1);
+    m_fileMenu->addSeparator();
+    m_actionExit = m_fileMenu->addAction("E&xit");
+    m_actionExit->setShortcut(Qt::CTRL | Qt::Key_Q);
+    connect(m_actionExit, &QAction::triggered, this, &MainWindow::onMenuExit);
 
+    // Playback Menu
+    m_playbackMenu = m_menuBar->addMenu("&Playback");
+    m_actionPlayPause = m_playbackMenu->addAction("&Play/Pause");
+    m_actionPlayPause->setShortcut(Qt::Key_Space);
+    connect(m_actionPlayPause, &QAction::triggered, this, &MainWindow::onMenuPlayPause);
+
+    m_actionStop = m_playbackMenu->addAction("&Stop");
+    m_actionStop->setShortcut(Qt::SHIFT | Qt::Key_Space);
+    connect(m_actionStop, &QAction::triggered, this, &MainWindow::onMenuStop);
+
+    m_playbackMenu->addSeparator();
+    m_speedSubmenu = m_playbackMenu->addMenu("&Speed");
+    for (double speed : {0.5, 0.75, 1.0, 1.5, 2.0}) {
+        QAction* speedAction = m_speedSubmenu->addAction(QString::number(speed, 'f', 2) + "x");
+        speedAction->setData(static_cast<int>(speed * 100.0));
+        connect(speedAction, &QAction::triggered, this, [this, speed]() {
+            m_speedSlider->setValue(static_cast<int>(speed * 100.0));
+        });
+    }
+
+    // View Menu
+    m_viewMenu = m_menuBar->addMenu("&View");
+    m_actionToggleEvents = m_viewMenu->addAction("&Events Panel");
+    m_actionToggleEvents->setShortcut(Qt::CTRL | Qt::SHIFT | Qt::Key_E);
+    m_actionToggleEvents->setCheckable(true);
+    m_actionToggleEvents->setChecked(false);
+    connect(m_actionToggleEvents, &QAction::triggered, this, &MainWindow::onMenuToggleEvents);
+
+    m_actionToggleSettings = m_viewMenu->addAction("&Settings Panel");
+    m_actionToggleSettings->setShortcut(Qt::CTRL | Qt::SHIFT | Qt::Key_S);
+    m_actionToggleSettings->setCheckable(true);
+    m_actionToggleSettings->setChecked(false);
+    connect(m_actionToggleSettings, &QAction::triggered, this, &MainWindow::onMenuToggleSettings);
+
+    m_actionToggleDebug = m_viewMenu->addAction("&Debug Overlay");
+    m_actionToggleDebug->setShortcut(Qt::Key_F3);
+    m_actionToggleDebug->setCheckable(true);
+    m_actionToggleDebug->setChecked(false);
+    connect(m_actionToggleDebug, &QAction::triggered, this, &MainWindow::onMenuToggleDebug);
+
+    m_viewMenu->addSeparator();
+    m_actionFullscreen = m_viewMenu->addAction("&Fullscreen");
+    m_actionFullscreen->setShortcut(Qt::Key_F11);
+    connect(m_actionFullscreen, &QAction::triggered, this, &MainWindow::onMenuFullscreen);
+
+    // Tools Menu
+    m_toolsMenu = m_menuBar->addMenu("&Tools");
+    m_actionLoadYolo = m_toolsMenu->addAction("&Load YOLO Model");
+    m_actionLoadYolo->setShortcut(Qt::Key_L);
+    connect(m_actionLoadYolo, &QAction::triggered, this, &MainWindow::onMenuLoadYolo);
+
+    m_actionTrackerSettings = m_toolsMenu->addAction("&Tracker Selection");
+    m_actionTrackerSettings->setShortcut(Qt::Key_T);
+    connect(m_actionTrackerSettings, &QAction::triggered, this, &MainWindow::onMenuTrackerSettings);
+
+    m_toolsMenu->addSeparator();
+    m_actionExportVideo = m_toolsMenu->addAction("Export &Video");
+    m_actionExportVideo->setShortcut(Qt::CTRL | Qt::Key_E);
+    connect(m_actionExportVideo, &QAction::triggered, this, &MainWindow::onMenuExportVideo);
+
+    m_actionExportYolo = m_toolsMenu->addAction("Export &YOLO");
+    m_actionExportYolo->setShortcut(Qt::CTRL | Qt::Key_Y);
+    connect(m_actionExportYolo, &QAction::triggered, this, &MainWindow::onMenuExportYolo);
+}
+
+void MainWindow::setupDockWidgets() {
+    // Events Dock
+    m_eventsDock = new QDockWidget("Events", this);
+    m_eventsDock->setObjectName("EventsDock");
+    m_eventsDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+
+    auto* eventsWidget = new QWidget(this);
+    auto* eventsLayout = new QVBoxLayout(eventsWidget);
+    eventsLayout->setContentsMargins(8, 8, 8, 8);
+    eventsLayout->setSpacing(8);
+    eventsLayout->addWidget(m_eventsList, 1);
+
+    // Buttons in vertical layout
+    eventsLayout->addWidget(m_removeEventButton);
+    eventsLayout->addWidget(m_clearEventsButton);
+
+    eventsWidget->setLayout(eventsLayout);
+    m_eventsDock->setWidget(eventsWidget);
+    m_eventsDock->setMinimumWidth(350);
+    m_eventsDock->setVisible(false);  // Hidden by default
+    addDockWidget(Qt::LeftDockWidgetArea, m_eventsDock);
+
+    // Settings Dock
+    m_settingsDock = new QDockWidget("Settings", this);
+    m_settingsDock->setObjectName("SettingsDock");
+    m_settingsDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+
+    auto* settingsWidget = new QWidget(this);
+    auto* settingsLayout = new QVBoxLayout(settingsWidget);
+    settingsLayout->setContentsMargins(8, 8, 8, 8);
+    settingsLayout->setSpacing(8);
+
+    // Speed section
+    auto* speedLayout = new QHBoxLayout();
+    speedLayout->addWidget(m_speedTextLabel);
+    speedLayout->addWidget(m_speedSlider);
+    speedLayout->addWidget(m_speedValueLabel);
+    settingsLayout->addLayout(speedLayout);
+
+    // Tracker section
+    auto* trackerLayout = new QHBoxLayout();
+    trackerLayout->addWidget(m_trackerTextLabel);
+    trackerLayout->addWidget(m_trackerPickerButton);
+    settingsLayout->addLayout(trackerLayout);
+
+    // Load YOLO button
+    settingsLayout->addWidget(m_loadYoloButton);
+
+    // AI section
+    auto* aiLayout = new QHBoxLayout();
+    aiLayout->addWidget(m_aiEnabledCheckBox);
+    aiLayout->addWidget(m_aiIntervalCombo);
+    settingsLayout->addLayout(aiLayout);
+
+    // YOLO status
+    settingsLayout->addWidget(m_yoloStatusLabel);
+
+    // Resolution section
+    auto* resLayout = new QHBoxLayout();
+    resLayout->addWidget(m_resolutionTextLabel);
+    resLayout->addWidget(m_resolutionCombo);
+    settingsLayout->addLayout(resLayout);
+
+    settingsLayout->addStretch();
+    settingsWidget->setLayout(settingsLayout);
+    m_settingsDock->setWidget(settingsWidget);
+    m_settingsDock->setMinimumWidth(300);
+    m_settingsDock->setVisible(false);  // Hidden by default
+    addDockWidget(Qt::RightDockWidgetArea, m_settingsDock);
+}
+
+void MainWindow::setupPlaybackToolbar() {
+    m_playbackToolbar = addToolBar("Playback");
+    m_playbackToolbar->setObjectName("PlaybackToolbar");
+    m_playbackToolbar->setMovable(false);
+    m_playbackToolbar->setFloatable(false);
+
+    m_playbackToolbar->addWidget(m_seekTextLabel);
+    m_playbackToolbar->addWidget(m_seekSlider);
+    m_playbackToolbar->addWidget(m_seekTimeLabel);
+    m_playbackToolbar->addSeparator();
+    m_playbackToolbar->addWidget(m_playPauseButton);
+
+    // Add spacer
+    QWidget* spacer = new QWidget();
+    spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    m_playbackToolbar->addWidget(spacer);
+
+    // Move toolbar to bottom
+    addToolBar(Qt::BottomToolBarArea, m_playbackToolbar);
+}
+
+void MainWindow::createConnections() {
+    // Slider and button connections
+    connect(m_playPauseButton, &QPushButton::clicked, this, &MainWindow::onPlayPauseClicked);
+    connect(m_resolutionCombo, QOverload<int>::of(&QComboBox::activated), this, &MainWindow::onCameraResolutionChanged);
+    connect(m_speedSlider, &QSlider::valueChanged, this, &MainWindow::onSpeedChanged);
+    connect(m_seekSlider, &QSlider::sliderReleased, this, &MainWindow::onSeekReleased);
+    connect(m_seekSlider, &QSlider::valueChanged, this, &MainWindow::onSeekValueChanged);
+    connect(m_removeEventButton, &QPushButton::clicked, this, &MainWindow::onRemoveEventClicked);
+    connect(m_clearEventsButton, &QPushButton::clicked, this, &MainWindow::onClearEventsClicked);
+    connect(m_eventsList, &QListWidget::itemDoubleClicked, this, &MainWindow::onEventActivated);
+    connect(m_loadYoloButton, &QPushButton::clicked, this, &MainWindow::onLoadYoloModelClicked);
+    connect(m_aiEnabledCheckBox, &QCheckBox::toggled, this, &MainWindow::onAiEnabledChanged);
+    connect(m_aiIntervalCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onAiIntervalChanged);
+}
+
+void MainWindow::applyStylesheet() {
     setStyleSheet(
-        "QWidget#appRoot {"
+        "QWidget {"
         "  background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #070d15, stop:1 #0f1822);"
         "  color: #dfeaf5;"
         "}"
-        "QFrame#controlsCard, QFrame#eventsCard, QFrame#videoCard {"
-        "  background: rgba(9, 15, 24, 0.82);"
-        "  border: 1px solid rgba(168, 198, 226, 0.28);"
-        "  border-radius: 6px;"
+        "QMenuBar {"
+        "  background: rgba(9, 15, 24, 0.92);"
+        "  border-bottom: 1px solid rgba(168, 198, 226, 0.28);"
+        "  color: #dfeaf5;"
+        "}"
+        "QMenuBar::item:hover {"
+        "  background: rgba(56, 83, 111, 0.92);"
+        "}"
+        "QMenuBar::item:selected {"
+        "  background: rgba(36, 57, 78, 0.98);"
+        "  color: #ffffff;"
+        "}"
+        "QMenuBar::item:pressed {"
+        "  background: rgba(36, 57, 78, 0.98);"
+        "  color: #ffffff;"
+        "}"
+        "QMenu {"
+        "  background: rgba(15, 27, 39, 0.96);"
+        "  color: #f2f7ff;"
+        "  border: 1px solid rgba(174, 205, 232, 0.45);"
+        "}"
+        "QMenu::item:selected {"
+        "  background: rgba(54, 88, 116, 0.98);"
+        "  color: #ffffff;"
+        "}"
+        "QMenu::item:hover {"
+        "  background: rgba(68, 107, 138, 0.88);"
         "}"
         "QLabel[caption=\"true\"] {"
         "  color: #a9c7e2;"
@@ -235,6 +413,18 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         "  background-color: #06090f;"
         "  border: 1px solid rgba(200, 220, 238, 0.45);"
         "  border-radius: 2px;"
+        "}"
+        "QDockWidget {"
+        "  background: rgba(9, 15, 24, 0.82);"
+        "  border: 1px solid rgba(168, 198, 226, 0.28);"
+        "  border-radius: 6px;"
+        "}"
+        "QToolBar {"
+        "  background: rgba(9, 15, 24, 0.82);"
+        "  border: 1px solid rgba(168, 198, 226, 0.28);"
+        "  border-radius: 6px;"
+        "  spacing: 6px;"
+        "  padding: 4px;"
         "}"
         "QTextEdit#debugOverlay {"
         "  background: rgba(5, 10, 16, 0.72);"
@@ -363,28 +553,32 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
         "  border: 1px solid #9bc7e3;"
         "}"
     );
+}
 
-    connect(cameraButton, &QPushButton::clicked, this, &MainWindow::onCameraClicked);
-    connect(openVideoButton, &QPushButton::clicked, this, &MainWindow::onOpenVideoClicked);
-    connect(m_exportVideoButton, &QPushButton::clicked, this, &MainWindow::onExportVideoClicked);
-    connect(m_exportYoloButton, &QPushButton::clicked, this, &MainWindow::onExportYoloClicked);
-    connect(m_playPauseButton, &QPushButton::clicked, this, &MainWindow::onPlayPauseClicked);
-    connect(m_resolutionCombo, QOverload<int>::of(&QComboBox::activated), this, &MainWindow::onCameraResolutionChanged);
-    connect(m_speedSlider, &QSlider::valueChanged, this, &MainWindow::onSpeedChanged);
-    connect(m_seekSlider, &QSlider::sliderReleased, this, &MainWindow::onSeekReleased);
-    connect(m_seekSlider, &QSlider::valueChanged, this, &MainWindow::onSeekValueChanged);
-    connect(m_removeEventButton, &QPushButton::clicked, this, &MainWindow::onRemoveEventClicked);
-    connect(m_clearEventsButton, &QPushButton::clicked, this, &MainWindow::onClearEventsClicked);
-    connect(m_eventsList, &QListWidget::itemDoubleClicked, this, &MainWindow::onEventActivated);
-    connect(m_loadYoloButton, &QPushButton::clicked, this, &MainWindow::onLoadYoloModelClicked);
-    connect(m_aiEnabledCheckBox, &QCheckBox::toggled, this, &MainWindow::onAiEnabledChanged);
-    connect(m_aiIntervalCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &MainWindow::onAiIntervalChanged);
+void MainWindow::restoreWindowState() {
+    QSettings settings("DroneTracker", "DroneTracker");
+    restoreGeometry(settings.value("geometry", saveGeometry()).toByteArray());
+    restoreState(settings.value("windowState", saveState()).toByteArray());
+}
 
-    setVideoControlsEnabled(false);
-    refreshYoloStatusLabel();
-    applyAiSettingsToWorker();
+void MainWindow::setPlaybackToolbarVisible(bool visible) {
+    if (m_playbackToolbar) m_playbackToolbar->setVisible(visible);
+}
 
-    startSource(buildCameraPipeline(), true);
+void MainWindow::onSeekSliderHover(int frameIndex) {
+    if (m_totalVideoFrames <= 0 || m_videoFps <= 0) return;
+    
+    const int minutes = frameIndex / (static_cast<int>(m_videoFps) * 60);
+    const int seconds = (frameIndex / static_cast<int>(m_videoFps)) % 60;
+    const int milliseconds = ((frameIndex % static_cast<int>(m_videoFps)) * 1000) / static_cast<int>(m_videoFps);
+    
+    const QString tooltipText = QString("Frame %1 | %2:%3.%4")
+        .arg(frameIndex)
+        .arg(minutes, 2, 10, QChar('0'))
+        .arg(seconds, 2, 10, QChar('0'))
+        .arg(milliseconds, 3, 10, QChar('0'));
+    
+    QToolTip::showText(QCursor::pos(), tooltipText, m_seekSlider);
 }
 
 MainWindow::~MainWindow() {
@@ -392,21 +586,185 @@ MainWindow::~MainWindow() {
 }
 
 void MainWindow::closeEvent(QCloseEvent* event) {
+    // Save window state before closing
+    QSettings settings("DroneTracker", "DroneTracker");
+    settings.setValue("geometry", saveGeometry());
+    settings.setValue("windowState", saveState());
+    
     stopCameraThread();
     QMainWindow::closeEvent(event);
 }
 
-void MainWindow::keyPressEvent(QKeyEvent* event) {
-    if (event && event->key() == Qt::Key_F3) {
-        if (m_debugOverlay) {
-            m_debugOverlay->toggleDebugOverlay();
-            if (m_camera) {
-                m_camera->setDebugEnabled(m_debugOverlay->isEnabled());
-            }
-        }
+// Menu action implementations
+void MainWindow::onMenuOpenVideo() {
+    onOpenVideoClicked();
+}
 
-        event->accept();
-        return;
+void MainWindow::onMenuOpenCamera() {
+    onCameraClicked();
+}
+
+void MainWindow::onMenuExit() {
+    close();
+}
+
+void MainWindow::onMenuPlayPause() {
+    onPlayPauseClicked();
+}
+
+void MainWindow::onMenuStop() {
+    if (m_camera) {
+        m_camera->setPaused(true);
+        m_isPaused = true;
+        m_seekSlider->setValue(0);
+        m_playPauseButton->setText("Play");
+    }
+}
+
+void MainWindow::onMenuToggleEvents() {
+    if (m_eventsDock) {
+        m_eventsDock->setVisible(m_actionToggleEvents->isChecked());
+    }
+}
+
+void MainWindow::onMenuToggleSettings() {
+    if (m_settingsDock) {
+        m_settingsDock->setVisible(m_actionToggleSettings->isChecked());
+    }
+}
+
+void MainWindow::onMenuToggleDebug() {
+    if (m_debugOverlay) {
+        m_debugOverlay->toggleDebugOverlay();
+        if (m_camera) {
+            m_camera->setDebugEnabled(m_debugOverlay->isEnabled());
+        }
+    }
+}
+
+void MainWindow::onMenuFullscreen() {
+    if (isFullScreen()) {
+        showNormal();
+    } else {
+        showFullScreen();
+    }
+}
+
+void MainWindow::onMenuLoadYolo() {
+    onLoadYoloModelClicked();
+}
+
+void MainWindow::onMenuTrackerSettings() {
+    // Show the tracker menu attached to the tracker button
+    if (m_trackerPickerButton && m_trackerPickerButton->menu()) {
+        m_trackerPickerButton->showMenu();
+    }
+}
+
+void MainWindow::onMenuExportVideo() {
+    onExportVideoClicked();
+}
+
+void MainWindow::onMenuExportYolo() {
+    onExportYoloClicked();
+}
+
+void MainWindow::keyPressEvent(QKeyEvent* event) {
+    if (event) {
+        switch (event->key()) {
+        case Qt::Key_F3:
+            if (m_debugOverlay) {
+                m_debugOverlay->toggleDebugOverlay();
+                if (m_camera) {
+                    m_camera->setDebugEnabled(m_debugOverlay->isEnabled());
+                }
+                m_actionToggleDebug->setChecked(m_debugOverlay->isEnabled());
+            }
+            event->accept();
+            return;
+        case Qt::Key_Space:
+            if (!event->isAutoRepeat()) {
+                onMenuPlayPause();
+                event->accept();
+                return;
+            }
+            break;
+        case Qt::Key_Left:
+            if (m_isVideoMode && m_seekSlider) {
+                int newValue = m_seekSlider->value() - (event->modifiers() & Qt::ControlModifier ? 30 : 5);
+                m_seekSlider->setValue(qMax(0, newValue));
+                event->accept();
+                return;
+            }
+            break;
+        case Qt::Key_Right:
+            if (m_isVideoMode && m_seekSlider) {
+                int newValue = m_seekSlider->value() + (event->modifiers() & Qt::ControlModifier ? 30 : 5);
+                m_seekSlider->setValue(qMin(m_totalVideoFrames, newValue));
+                event->accept();
+                return;
+            }
+            break;
+        case Qt::Key_PageUp:
+            if (m_isVideoMode && m_seekSlider && m_videoFps > 0) {
+                int framesToSeek = static_cast<int>(m_videoFps);  // 1 second
+                int newValue = m_seekSlider->value() - framesToSeek;
+                m_seekSlider->setValue(qMax(0, newValue));
+                event->accept();
+                return;
+            }
+            break;
+        case Qt::Key_PageDown:
+            if (m_isVideoMode && m_seekSlider && m_videoFps > 0) {
+                int framesToSeek = static_cast<int>(m_videoFps);  // 1 second
+                int newValue = m_seekSlider->value() + framesToSeek;
+                m_seekSlider->setValue(qMin(m_totalVideoFrames, newValue));
+                event->accept();
+                return;
+            }
+            break;
+        case Qt::Key_Plus:
+        case Qt::Key_Equal:
+            if (m_speedSlider) {
+                int newValue = m_speedSlider->value() + 25;  // 0.25x increment
+                m_speedSlider->setValue(qMin(300, newValue));
+                event->accept();
+                return;
+            }
+            break;
+        case Qt::Key_Minus:
+            if (m_speedSlider) {
+                int newValue = m_speedSlider->value() - 25;  // 0.25x decrement
+                m_speedSlider->setValue(qMax(25, newValue));
+                event->accept();
+                return;
+            }
+            break;
+        case Qt::Key_1:
+            if (m_speedSlider) {
+                m_speedSlider->setValue(100);  // 1.0x
+                event->accept();
+                return;
+            }
+            break;
+        case Qt::Key_L:
+            onMenuLoadYolo();
+            event->accept();
+            return;
+        case Qt::Key_T:
+            onMenuTrackerSettings();
+            event->accept();
+            return;
+        case Qt::Key_A:
+            if (m_aiEnabledCheckBox) {
+                m_aiEnabledCheckBox->toggle();
+                event->accept();
+                return;
+            }
+            break;
+        default:
+            break;
+        }
     }
 
     QMainWindow::keyPressEvent(event);
@@ -537,6 +895,10 @@ void MainWindow::onLoadYoloModelClicked() {
 
     m_yoloModelPath = configPath;
     m_yoloClassNames = namesPath.isEmpty() ? QStringList() : loadClassNamesFromFile(namesPath);
+
+    // Enable AI controls after model is loaded
+    if (m_aiEnabledCheckBox) m_aiEnabledCheckBox->setEnabled(true);
+    if (m_aiIntervalCombo) m_aiIntervalCombo->setEnabled(true);
 
     applyAiSettingsToWorker();
     refreshYoloStatusLabel();
@@ -675,6 +1037,7 @@ void MainWindow::startSource(const QString& source, bool useGstreamer) {
     m_currentVideoPath = useGstreamer ? QString() : source;
     m_isPaused = false;
     setVideoControlsEnabled(m_isVideoMode);
+    setPlaybackToolbarVisible(m_isVideoMode);  // Hide seek bar in camera mode
     if (m_trackerTextLabel) {
         m_trackerTextLabel->setEnabled(true);
     }

@@ -15,6 +15,10 @@
 #include <QKeyEvent>
 #include <QTextEdit>
 #include <QScrollBar>
+#include <QMenuBar>
+#include <QMenu>
+#include <QToolBar>
+#include <QDockWidget>
 #include "cameraworker.h"
 #include "videolabel.h"
 #include "timeline_repository.h"
@@ -54,6 +58,22 @@ private slots:
     void onAiEnabledChanged(bool checked);
     void onAiIntervalChanged(int index);
 
+    // Menu action handlers
+    void onMenuOpenVideo();
+    void onMenuOpenCamera();
+    void onMenuExit();
+    void onMenuPlayPause();
+    void onMenuStop();
+    void onMenuToggleEvents();
+    void onMenuToggleSettings();
+    void onMenuToggleDebug();
+    void onMenuFullscreen();
+    void onMenuLoadYolo();
+    void onMenuTrackerSettings();
+    void onMenuExportVideo();
+    void onMenuExportYolo();
+    void onSeekSliderHover(int frameIndex);
+
 protected:
     void closeEvent(QCloseEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
@@ -76,6 +96,16 @@ private:
     void stopCameraThread();
     void setVideoControlsEnabled(bool enabled);
     QString buildCameraPipeline() const;
+
+    // UI Setup methods
+    void setupMenuBar();
+    void setupDockWidgets();
+    void setupPlaybackToolbar();
+    void createConnections();
+    void createWidgetComponents();
+    void applyStylesheet();
+    void restoreWindowState();
+    void setPlaybackToolbarVisible(bool visible);
 
     QString m_defaultCameraPipeline{"mfvideosrc ! video/x-raw,width=640,height=480 ! videoconvert ! video/x-raw,format=BGR ! appsink"};
     QThread* m_thread{nullptr};
@@ -114,4 +144,42 @@ private:
     QString m_currentVideoPath;
     bool m_isVideoMode{false};
     bool m_isPaused{false};
+
+    // Menu Bar & Actions
+    QMenuBar* m_menuBar{nullptr};
+    QMenu* m_fileMenu{nullptr};
+    QMenu* m_playbackMenu{nullptr};
+    QMenu* m_viewMenu{nullptr};
+    QMenu* m_toolsMenu{nullptr};
+    QMenu* m_helpMenu{nullptr};
+
+    // File Menu Actions
+    QAction* m_actionOpenVideo{nullptr};
+    QAction* m_actionOpenCamera{nullptr};
+    QAction* m_actionExit{nullptr};
+
+    // Playback Menu Actions
+    QAction* m_actionPlayPause{nullptr};
+    QAction* m_actionStop{nullptr};
+    QMenu* m_speedSubmenu{nullptr};
+    QAction* m_actionSpeedCustom{nullptr};
+
+    // View Menu Actions
+    QAction* m_actionToggleEvents{nullptr};
+    QAction* m_actionToggleSettings{nullptr};
+    QAction* m_actionToggleDebug{nullptr};
+    QAction* m_actionFullscreen{nullptr};
+
+    // Tools Menu Actions
+    QAction* m_actionLoadYolo{nullptr};
+    QAction* m_actionTrackerSettings{nullptr};
+    QAction* m_actionExportVideo{nullptr};
+    QAction* m_actionExportYolo{nullptr};
+
+    // Dock Widgets
+    QDockWidget* m_eventsDock{nullptr};
+    QDockWidget* m_settingsDock{nullptr};
+
+    // Playback Toolbar
+    QToolBar* m_playbackToolbar{nullptr};
 };
