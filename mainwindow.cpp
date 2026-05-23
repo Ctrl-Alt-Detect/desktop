@@ -160,7 +160,7 @@ void MainWindow::createWidgetComponents() {
     m_aiIntervalCombo->addItem("30 frames", 30);
     m_aiIntervalCombo->addItem("60 frames", 60);
     m_aiIntervalCombo->setCurrentIndex(3);
-    m_aiIntervalCombo->setFixedWidth(118);
+    m_aiIntervalCombo->setFixedWidth(150);
     m_aiIntervalCombo->setEnabled(false);  // Disabled until model loaded
 
     // Configure events list
