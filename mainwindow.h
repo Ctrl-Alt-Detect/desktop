@@ -21,6 +21,7 @@
 #include <QDockWidget>
 #include "cameraworker.h"
 #include "videolabel.h"
+#include "seekbar.h"
 #include "timeline_repository.h"
 #include "application_settings.h"
 #include "video_export_engine.h"
@@ -111,13 +112,9 @@ private:
     QThread* m_thread{nullptr};
     VideoLabel* m_videoLabel{nullptr};
     CameraWorker* m_camera{nullptr};
-    QPushButton* m_playPauseButton{nullptr};
-    QPushButton* m_exportVideoButton{nullptr};
-    QPushButton* m_exportYoloButton{nullptr};
     QLabel* m_resolutionTextLabel{nullptr};
     QComboBox* m_resolutionCombo{nullptr};
-    QLabel* m_seekTextLabel{nullptr};
-    QLabel* m_seekTimeLabel{nullptr};
+    SeekBar* m_seekBar{nullptr};
     QLabel* m_speedTextLabel{nullptr};
     QLabel* m_speedValueLabel{nullptr};
     QLabel* m_trackerTextLabel{nullptr};
@@ -127,7 +124,6 @@ private:
     QComboBox* m_aiIntervalCombo{nullptr};
     QLabel* m_yoloStatusLabel{nullptr};
     QLabel* m_eventsTextLabel{nullptr};
-    QSlider* m_seekSlider{nullptr};
     QSlider* m_speedSlider{nullptr};
     QListWidget* m_eventsList{nullptr};
     QPushButton* m_removeEventButton{nullptr};

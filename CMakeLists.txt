@@ -12,6 +12,7 @@ add_executable(${PROJECT_NAME}
     cameraworker.cpp cameraworker.h 
     mainwindow.cpp mainwindow.h 
     videolabel.cpp videolabel.h 
+    seekbar.cpp seekbar.h
     yoloassist.cpp yoloassist.h 
     tracking_manager.cpp tracking_manager.h
     timeline_repository.cpp timeline_repository.h

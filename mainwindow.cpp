@@ -79,12 +79,13 @@ MainWindow::MainWindow(QWidget* parent) : QMainWindow(parent) {
 }
 
 void MainWindow::createWidgetComponents() {
-    // Playback buttons and labels
-    m_playPauseButton = new QPushButton("Play", this);
+    // Playback controls - using SeekBar widget
+    m_seekBar = new SeekBar(this);
+    m_seekBar->setMetadata(0, 30.0);
+
+    // Labels and controls
     m_resolutionTextLabel = new QLabel("Camera", this);
     m_resolutionCombo = new QComboBox(this);
-    m_seekTextLabel = new QLabel("Seek", this);
-    m_seekTimeLabel = new QLabel("00:00.000 / 00:00.000", this);
     m_speedTextLabel = new QLabel("Speed", this);
     m_speedValueLabel = new QLabel("1.00x", this);
     m_trackerTextLabel = new QLabel("Trackers", this);
@@ -96,29 +97,24 @@ void MainWindow::createWidgetComponents() {
     m_yoloStatusLabel->setObjectName("yoloStatusLabel");
 
     // Sliders and widgets
-    m_seekSlider = new QSlider(Qt::Horizontal, this);
     m_speedSlider = new QSlider(Qt::Horizontal, this);
     m_eventsList = new QListWidget(this);
     m_removeEventButton = new QPushButton("Remove Event", this);
     m_clearEventsButton = new QPushButton("Clear All", this);
 
     // Button style variants
-    m_playPauseButton->setProperty("variant", "primary");
     m_loadYoloButton->setProperty("variant", "accent");
     m_removeEventButton->setProperty("variant", "flat");
     m_clearEventsButton->setProperty("variant", "flat");
 
     // Label captions
-    m_seekTextLabel->setProperty("caption", true);
     m_speedTextLabel->setProperty("caption", true);
     m_trackerTextLabel->setProperty("caption", true);
     m_resolutionTextLabel->setProperty("caption", true);
 
-    // Configure seekSlider
-    m_seekSlider->setRange(0, 0);
-    m_seekSlider->setMinimumWidth(280);
-    m_seekSlider->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    m_seekTimeLabel->setMinimumWidth(180);
+    // Configure seekBar
+    m_seekBar->setRange(0, 0);
+    m_seekBar->setPlayButtonText("Play");
 
     // Configure speedSlider
     m_speedSlider->setRange(25, 300);
@@ -330,11 +326,7 @@ void MainWindow::setupPlaybackToolbar() {
     m_playbackToolbar->setMovable(false);
     m_playbackToolbar->setFloatable(false);
 
-    m_playbackToolbar->addWidget(m_seekTextLabel);
-    m_playbackToolbar->addWidget(m_seekSlider);
-    m_playbackToolbar->addWidget(m_seekTimeLabel);
-    m_playbackToolbar->addSeparator();
-    m_playbackToolbar->addWidget(m_playPauseButton);
+    m_playbackToolbar->addWidget(m_seekBar);
 
     // Add spacer
     QWidget* spacer = new QWidget();
@@ -346,12 +338,14 @@ void MainWindow::setupPlaybackToolbar() {
 }
 
 void MainWindow::createConnections() {
-    // Slider and button connections
-    connect(m_playPauseButton, &QPushButton::clicked, this, &MainWindow::onPlayPauseClicked);
+    // SeekBar connections
+    connect(m_seekBar, &SeekBar::playPauseClicked, this, &MainWindow::onPlayPauseClicked);
+    connect(m_seekBar, &SeekBar::sliderReleased, this, &MainWindow::onSeekReleased);
+    connect(m_seekBar, &SeekBar::valueChanged, this, &MainWindow::onSeekValueChanged);
+    
+    // Other connections
     connect(m_resolutionCombo, QOverload<int>::of(&QComboBox::activated), this, &MainWindow::onCameraResolutionChanged);
     connect(m_speedSlider, &QSlider::valueChanged, this, &MainWindow::onSpeedChanged);
-    connect(m_seekSlider, &QSlider::sliderReleased, this, &MainWindow::onSeekReleased);
-    connect(m_seekSlider, &QSlider::valueChanged, this, &MainWindow::onSeekValueChanged);
     connect(m_removeEventButton, &QPushButton::clicked, this, &MainWindow::onRemoveEventClicked);
     connect(m_clearEventsButton, &QPushButton::clicked, this, &MainWindow::onClearEventsClicked);
     connect(m_eventsList, &QListWidget::itemDoubleClicked, this, &MainWindow::onEventActivated);
@@ -535,22 +529,61 @@ void MainWindow::applyStylesheet() {
         "  background: #3ca27f;"
         "  border: 1px solid #8ce6c9;"
         "}"
-        "QSlider::groove:horizontal {"
+        "SeekBar {"
+        "  background: rgba(8, 14, 22, 0.92);"
+        "  border: 1px solid rgba(168, 198, 226, 0.22);"
+        "  border-radius: 8px;"
+        "  padding: 6px 8px;"
+        "}"
+        "SeekBar QPushButton {"
+        "  min-width: 86px;"
+        "  max-width: 120px;"
+        "  min-height: 30px;"
+        "  padding: 4px 8px;"
+        "}"
+        "SeekBar QLabel {"
+        "  color: #d7e8f7;"
+        "  min-width: 48px;"
+        "  padding: 0 2px;"
+        "  font-family: Consolas, 'Courier New', monospace;"
+        "  font-size: 9.5pt;"
+        "}"
+        "QLabel#seekTimeCurrent, QLabel#seekTimeTotal {"
+        "  color: #b8d3e8;"
+        "}"
+        "SeekBar QSlider::groove:horizontal {"
         "  border: none;"
-        "  height: 4px;"
-        "  border-radius: 1px;"
-        "  background: rgba(84, 112, 136, 0.5);"
+        "  height: 12px;"
+        "  border-radius: 6px;"
+        "  background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
+        "    stop:0 rgba(70, 100, 120, 0.6),"
+        "    stop:0.5 rgba(84, 112, 136, 0.5),"
+        "    stop:1 rgba(70, 100, 120, 0.6));"
         "}"
-        "QSlider::sub-page:horizontal {"
-        "  border-radius: 1px;"
-        "  background: #79c9f6;"
+        "SeekBar QSlider::sub-page:horizontal {"
+        "  border-radius: 6px;"
+        "  background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
+        "    stop:0 #5ab9ff,"
+        "    stop:0.5 #3aacf0,"
+        "    stop:1 #2a9fe8);"
         "}"
-        "QSlider::handle:horizontal {"
-        "  width: 10px;"
+        "SeekBar QSlider::handle:horizontal {"
+        "  width: 18px;"
+        "  margin: -4px 0;"
+        "  border-radius: 9px;"
+        "  background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
+        "    stop:0 #ffffff,"
+        "    stop:1 #e8f2ff);"
+        "  border: 1px solid rgba(155, 199, 227, 0.8);"
+        "  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);"
+        "}"
+        "SeekBar QSlider::handle:horizontal:hover {"
+        "  background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
+        "    stop:0 #ffffff,"
+        "    stop:1 #f0f7ff);"
+        "  border: 1px solid rgba(120, 180, 230, 1);"
+        "  width: 20px;"
         "  margin: -5px 0;"
-        "  border-radius: 5px;"
-        "  background: #f5fbff;"
-        "  border: 1px solid #9bc7e3;"
         "}"
     );
 }
@@ -566,19 +599,10 @@ void MainWindow::setPlaybackToolbarVisible(bool visible) {
 }
 
 void MainWindow::onSeekSliderHover(int frameIndex) {
-    if (m_totalVideoFrames <= 0 || m_videoFps <= 0) return;
-    
-    const int minutes = frameIndex / (static_cast<int>(m_videoFps) * 60);
-    const int seconds = (frameIndex / static_cast<int>(m_videoFps)) % 60;
-    const int milliseconds = ((frameIndex % static_cast<int>(m_videoFps)) * 1000) / static_cast<int>(m_videoFps);
-    
-    const QString tooltipText = QString("Frame %1 | %2:%3.%4")
-        .arg(frameIndex)
-        .arg(minutes, 2, 10, QChar('0'))
-        .arg(seconds, 2, 10, QChar('0'))
-        .arg(milliseconds, 3, 10, QChar('0'));
-    
-    QToolTip::showText(QCursor::pos(), tooltipText, m_seekSlider);
+    // Tooltip is now handled by SeekBar widget internally
+    if (m_seekBar) {
+        m_seekBar->setMetadata(m_totalVideoFrames, m_videoFps);
+    }
 }
 
 MainWindow::~MainWindow() {
@@ -616,8 +640,8 @@ void MainWindow::onMenuStop() {
     if (m_camera) {
         m_camera->setPaused(true);
         m_isPaused = true;
-        m_seekSlider->setValue(0);
-        m_playPauseButton->setText("Play");
+        m_seekBar->setValue(0);
+        m_seekBar->setPlayButtonText("Play");
     }
 }
 
@@ -690,35 +714,35 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
             }
             break;
         case Qt::Key_Left:
-            if (m_isVideoMode && m_seekSlider) {
-                int newValue = m_seekSlider->value() - (event->modifiers() & Qt::ControlModifier ? 30 : 5);
-                m_seekSlider->setValue(qMax(0, newValue));
+            if (m_isVideoMode && m_seekBar) {
+                int newValue = m_seekBar->value() - (event->modifiers() & Qt::ControlModifier ? 30 : 5);
+                m_seekBar->setValue(qMax(0, newValue));
                 event->accept();
                 return;
             }
             break;
         case Qt::Key_Right:
-            if (m_isVideoMode && m_seekSlider) {
-                int newValue = m_seekSlider->value() + (event->modifiers() & Qt::ControlModifier ? 30 : 5);
-                m_seekSlider->setValue(qMin(m_totalVideoFrames, newValue));
+            if (m_isVideoMode && m_seekBar) {
+                int newValue = m_seekBar->value() + (event->modifiers() & Qt::ControlModifier ? 30 : 5);
+                m_seekBar->setValue(qMin(m_totalVideoFrames, newValue));
                 event->accept();
                 return;
             }
             break;
         case Qt::Key_PageUp:
-            if (m_isVideoMode && m_seekSlider && m_videoFps > 0) {
+            if (m_isVideoMode && m_seekBar && m_videoFps > 0) {
                 int framesToSeek = static_cast<int>(m_videoFps);  // 1 second
-                int newValue = m_seekSlider->value() - framesToSeek;
-                m_seekSlider->setValue(qMax(0, newValue));
+                int newValue = m_seekBar->value() - framesToSeek;
+                m_seekBar->setValue(qMax(0, newValue));
                 event->accept();
                 return;
             }
             break;
         case Qt::Key_PageDown:
-            if (m_isVideoMode && m_seekSlider && m_videoFps > 0) {
+            if (m_isVideoMode && m_seekBar && m_videoFps > 0) {
                 int framesToSeek = static_cast<int>(m_videoFps);  // 1 second
-                int newValue = m_seekSlider->value() + framesToSeek;
-                m_seekSlider->setValue(qMin(m_totalVideoFrames, newValue));
+                int newValue = m_seekBar->value() + framesToSeek;
+                m_seekBar->setValue(qMin(m_totalVideoFrames, newValue));
                 event->accept();
                 return;
             }
@@ -920,13 +944,13 @@ void MainWindow::onPlayPauseClicked() {
         return;
     }
 
-    const bool atVideoEnd = m_seekSlider && (m_seekSlider->maximum() > 0) && (m_seekSlider->value() >= m_seekSlider->maximum());
+    const bool atVideoEnd = m_seekBar && (m_seekBar->maximum() > 0) && (m_seekBar->value() >= m_seekBar->maximum());
     if (m_isPaused && atVideoEnd) {
         m_camera->seekToFrame(0);
     }
 
     m_isPaused = !m_isPaused;
-    m_playPauseButton->setText(m_isPaused ? "Play" : "Pause");
+    m_seekBar->setPlayButtonText(m_isPaused ? "Play" : "Pause");
     m_camera->setPaused(m_isPaused);
 }
 
@@ -948,7 +972,7 @@ void MainWindow::onSeekReleased() {
         return;
     }
 
-    const int frameIndex = m_seekSlider->value();
+    const int frameIndex = m_seekBar->value();
     m_camera->resetTracker();
     m_camera->seekToFrame(frameIndex);
     m_lastAppliedTimelineFrame = -1;
@@ -966,14 +990,13 @@ void MainWindow::onVideoInfo(int totalFrames, double fps) {
         m_videoFps = 30.0;
     }
     m_totalVideoFrames = std::max(0, totalFrames);
-    m_seekSlider->setRange(0, totalFrames > 0 ? totalFrames - 1 : 0);
-    updateSeekTimeLabel(m_seekSlider->value());
+    m_seekBar->setRange(0, totalFrames > 0 ? totalFrames - 1 : 0);
+    m_seekBar->setMetadata(totalFrames, fps);
+    updateSeekTimeLabel(m_seekBar->value());
 }
 
 void MainWindow::onVideoPosition(int frameIndex) {
-    if (!m_seekSlider->isSliderDown()) {
-        m_seekSlider->setValue(frameIndex);
-    }
+    m_seekBar->setValue(frameIndex);
 
     applyTrackingEventForFrame(frameIndex);
 }
@@ -984,8 +1007,8 @@ void MainWindow::onPlaybackEnded() {
     }
 
     m_isPaused = true;
-    if (m_playPauseButton) {
-        m_playPauseButton->setText("Play");
+    if (m_seekBar) {
+        m_seekBar->setPlayButtonText("Play");
     }
 }
 
@@ -1050,7 +1073,9 @@ void MainWindow::startSource(const QString& source, bool useGstreamer) {
     if (m_resolutionTextLabel) {
         m_resolutionTextLabel->setEnabled(useGstreamer);
     }
-    m_playPauseButton->setText("Pause");
+    if (m_seekBar) {
+        m_seekBar->setPlayButtonText("Pause");
+    }
 
     m_camera = new CameraWorker;
     m_thread = new QThread(this);
@@ -1083,6 +1108,11 @@ void MainWindow::startSource(const QString& source, bool useGstreamer) {
 
     if (m_isVideoMode) {
         onSpeedChanged(m_speedSlider->value());
+    }
+
+    if (m_seekBar) {
+        m_seekBar->setPlayButtonText(m_isPaused ? "Play" : "Pause");
+        m_seekBar->setMetadata(m_totalVideoFrames, m_videoFps);
     }
 }
 
@@ -1175,27 +1205,15 @@ void MainWindow::stopCameraThread() {
 }
 
 void MainWindow::setVideoControlsEnabled(bool enabled) {
-    if (m_playPauseButton) {
-        m_playPauseButton->setEnabled(enabled);
-    }
-    if (m_seekSlider) {
-        m_seekSlider->setEnabled(enabled);
+    if (m_seekBar) {
+        m_seekBar->setEnabled(enabled);
         if (!enabled) {
-            m_seekSlider->setRange(0, 0);
-            m_seekSlider->setValue(0);
-        }
-    }
-    if (m_seekTimeLabel) {
-        m_seekTimeLabel->setEnabled(enabled);
-        if (!enabled) {
-            updateSeekTimeLabel(0);
+            m_seekBar->setRange(0, 0);
+            m_seekBar->setValue(0);
         }
     }
     if (m_speedSlider) {
         m_speedSlider->setEnabled(enabled);
-    }
-    if (m_seekTextLabel) {
-        m_seekTextLabel->setEnabled(enabled);
     }
     if (m_speedTextLabel) {
         m_speedTextLabel->setEnabled(enabled);
@@ -1246,22 +1264,19 @@ void MainWindow::onDebugInfoReady(const QString& info) {
 }
 
 int MainWindow::currentVideoFrame() const {
-    if (!m_isVideoMode || !m_seekSlider) {
+    if (!m_isVideoMode || !m_seekBar) {
         return -1;
     }
 
-    return m_seekSlider->value();
+    return m_seekBar->value();
 }
 
 void MainWindow::updateSeekTimeLabel(int currentFrame) {
-    if (!m_seekTimeLabel) {
-        return;
-    }
-
     const int safeCurrentFrame = std::max(0, currentFrame);
     const int totalFrameForTime = std::max(0, m_totalVideoFrames);
-    m_seekTimeLabel->setText(QString("%1 / %2")
-        .arg(frameToTimeText(safeCurrentFrame), frameToTimeText(totalFrameForTime)));
+    if (m_seekBar) {
+        m_seekBar->setMetadata(totalFrameForTime, m_videoFps);
+    }
 }
 
 QStringList MainWindow::selectedTrackerTypes() const {
@@ -1375,12 +1390,12 @@ void MainWindow::onClearEventsClicked() {
 }
 
 void MainWindow::onEventActivated(QListWidgetItem* item) {
-    if (!item || !m_isVideoMode || !m_camera || !m_seekSlider) {
+    if (!item || !m_isVideoMode || !m_camera || !m_seekBar) {
         return;
     }
 
     const int frameIndex = item->data(Qt::UserRole).toInt();
-    m_seekSlider->setValue(frameIndex);
+    m_seekBar->setValue(frameIndex);
     m_camera->resetTracker();
     m_camera->seekToFrame(frameIndex);
     m_lastAppliedTimelineFrame = -1;
