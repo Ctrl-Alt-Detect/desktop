@@ -130,7 +130,7 @@ void MainWindow::createWidgetComponents() {
     m_resolutionCombo->addItem("1280 x 720", QSize(1280, 720));
     m_resolutionCombo->addItem("1920 x 1080", QSize(1920, 1080));
     m_resolutionCombo->setCurrentIndex(0);
-    m_resolutionCombo->setFixedWidth(138);
+    m_resolutionCombo->setFixedWidth(175);
 
     // Configure tracker button
     m_trackerPickerButton->setMinimumWidth(132);
